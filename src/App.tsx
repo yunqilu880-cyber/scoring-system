@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppProvider, useStore } from './store'
 import type { UserRole } from './types'
 import Layout from './components/Layout'
@@ -36,7 +36,7 @@ function RoleRoute({ role, children }: { role: UserRole; children: React.ReactEl
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <AppProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -52,6 +52,6 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppProvider>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
