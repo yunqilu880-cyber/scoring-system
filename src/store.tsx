@@ -14,7 +14,7 @@ import type {
 } from './types'
 import { mockApplications, mockCategories, mockSettings, mockStudents } from './mockData'
 
-const DATA_KEY = 'score-review-system-data-v3'
+const DATA_KEY = 'score-review-system-data-v4'
 const USER_KEY = 'score-review-system-user-v4'
 const INITIAL_PASSWORD = '123456'
 

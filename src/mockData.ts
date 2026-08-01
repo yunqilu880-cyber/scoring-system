@@ -1,4 +1,31 @@
-import type { BonusApplication, BonusCategory, StudentProfile, SystemSettings } from './types'
+import type { BonusApplication, BonusCategory, MaterialAttachment, StudentProfile, SystemSettings } from './types'
+
+const createDemoAttachment = (id: string, title: string, subtitle: string, accent = '#2563eb'): MaterialAttachment => {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="720" height="480" viewBox="0 0 720 480">
+      <rect width="720" height="480" rx="28" fill="#f8fafc"/>
+      <rect x="42" y="42" width="636" height="396" rx="22" fill="#ffffff" stroke="#dbeafe" stroke-width="3"/>
+      <rect x="72" y="78" width="576" height="58" rx="14" fill="${accent}"/>
+      <text x="360" y="116" text-anchor="middle" font-family="Microsoft YaHei, Arial" font-size="28" font-weight="700" fill="#ffffff">演示证明材料</text>
+      <text x="360" y="216" text-anchor="middle" font-family="Microsoft YaHei, Arial" font-size="34" font-weight="700" fill="#0f172a">${title}</text>
+      <text x="360" y="264" text-anchor="middle" font-family="Microsoft YaHei, Arial" font-size="22" fill="#475569">${subtitle}</text>
+      <line x1="132" y1="326" x2="588" y2="326" stroke="#bfdbfe" stroke-width="2"/>
+      <text x="150" y="372" font-family="Microsoft YaHei, Arial" font-size="20" fill="#64748b">材料编号：${id.toUpperCase()}</text>
+      <text x="150" y="404" font-family="Microsoft YaHei, Arial" font-size="20" fill="#64748b">上传时间：2026-07</text>
+      <circle cx="590" cy="370" r="42" fill="none" stroke="${accent}" stroke-width="7"/>
+      <text x="590" y="378" text-anchor="middle" font-family="Microsoft YaHei, Arial" font-size="18" font-weight="700" fill="${accent}">DEMO</text>
+    </svg>
+  `
+
+  return {
+    id,
+    name: `${title}.svg`,
+    type: 'image/svg+xml',
+    size: svg.length,
+    dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+    uploadedAt: '2026-07-25T09:00:00.000Z',
+  }
+}
 
 export const mockStudents: StudentProfile[] = [
   {
@@ -277,6 +304,223 @@ export const mockApplications: BonusApplication[] = [
     reviewedAt: '2026-07-20T16:30:00.000Z',
     reviewerName: '管理员',
     reviewComment: '证明材料缺少盖章页，请补充后重新提交。',
+  },
+  {
+    id: 'app-5',
+    applicationNo: 'SQ-2026-0005',
+    studentId: '2021004',
+    categoryId: 'cat-competition',
+    title: '团队流程优化案例一等奖',
+    description: '参与内部流程优化案例评选，团队成果获得一等奖，申请按竞赛评比类认定。',
+    requestedScore: 7,
+    approvedScore: 0,
+    status: 'pending',
+    attachments: [createDemoAttachment('att-app-5-1', '流程优化案例一等奖', '第一项目组 · 赵六', '#2563eb')],
+    reviewLogs: [
+      {
+        id: 'log-app-5-submit',
+        action: 'submitted',
+        actorName: '赵六',
+        comment: '提交申报材料',
+        score: 7,
+        createdAt: '2026-07-25T09:20:00.000Z',
+      },
+    ],
+    submittedAt: '2026-07-25T09:20:00.000Z',
+  },
+  {
+    id: 'app-6',
+    applicationNo: 'SQ-2026-0006',
+    studentId: '2022001',
+    categoryId: 'cat-honor',
+    title: '月度优秀个人',
+    description: '2026 年 7 月被评为月度优秀个人，申请荣誉与表彰类加分。',
+    requestedScore: 4,
+    approvedScore: 0,
+    status: 'pending',
+    attachments: [createDemoAttachment('att-app-6-1', '月度优秀个人', '第二项目组 · 钱七', '#0891b2')],
+    reviewLogs: [
+      {
+        id: 'log-app-6-submit',
+        action: 'submitted',
+        actorName: '钱七',
+        comment: '提交申报材料',
+        score: 4,
+        createdAt: '2026-07-25T11:05:00.000Z',
+      },
+    ],
+    submittedAt: '2026-07-25T11:05:00.000Z',
+  },
+  {
+    id: 'app-7',
+    applicationNo: 'SQ-2026-0007',
+    studentId: '2021003',
+    categoryId: 'cat-research',
+    title: '数据看板建设成果',
+    description: '完成数据看板搭建并投入使用，提交项目说明和验收截图。',
+    requestedScore: 8,
+    approvedScore: 0,
+    status: 'pending',
+    attachments: [createDemoAttachment('att-app-7-1', '数据看板建设成果', '第二项目组 · 王五', '#4f46e5')],
+    reviewLogs: [
+      {
+        id: 'log-app-7-submit',
+        action: 'submitted',
+        actorName: '王五',
+        comment: '提交申报材料',
+        score: 8,
+        createdAt: '2026-07-26T08:40:00.000Z',
+      },
+    ],
+    submittedAt: '2026-07-26T08:40:00.000Z',
+  },
+  {
+    id: 'app-8',
+    applicationNo: 'SQ-2026-0008',
+    studentId: '2022002',
+    categoryId: 'cat-volunteer',
+    title: '活动现场保障服务',
+    description: '参与大型活动现场保障和秩序维护，累计服务 28 小时。',
+    requestedScore: 3,
+    approvedScore: 0,
+    status: 'pending',
+    attachments: [createDemoAttachment('att-app-8-1', '活动保障服务记录', '第二项目组 · 孙八', '#0d9488')],
+    reviewLogs: [
+      {
+        id: 'log-app-8-submit',
+        action: 'submitted',
+        actorName: '孙八',
+        comment: '提交申报材料',
+        score: 3,
+        createdAt: '2026-07-26T10:18:00.000Z',
+      },
+    ],
+    submittedAt: '2026-07-26T10:18:00.000Z',
+  },
+  {
+    id: 'app-9',
+    applicationNo: 'SQ-2026-0009',
+    studentId: '2021002',
+    categoryId: 'cat-competition',
+    title: '创新方案评选三等奖',
+    description: '提交创新方案并获得三等奖，材料包含获奖名单截图。',
+    requestedScore: 5,
+    approvedScore: 5,
+    status: 'approved',
+    attachments: [createDemoAttachment('att-app-9-1', '创新方案三等奖', '第一项目组 · 李四', '#16a34a')],
+    reviewLogs: [
+      {
+        id: 'log-app-9-submit',
+        action: 'submitted',
+        actorName: '李四',
+        comment: '提交申报材料',
+        score: 5,
+        createdAt: '2026-07-23T16:12:00.000Z',
+      },
+      {
+        id: 'log-app-9-review',
+        action: 'approved',
+        actorName: '管理员',
+        comment: '获奖信息可核验，认定 5 分。',
+        score: 5,
+        createdAt: '2026-07-24T09:35:00.000Z',
+      },
+    ],
+    submittedAt: '2026-07-23T16:12:00.000Z',
+    reviewedAt: '2026-07-24T09:35:00.000Z',
+    reviewerName: '管理员',
+    reviewComment: '获奖信息可核验，认定 5 分。',
+  },
+  {
+    id: 'app-10',
+    applicationNo: 'SQ-2026-0010',
+    studentId: '2021001',
+    categoryId: 'cat-volunteer',
+    title: '志愿服务累计 60 小时',
+    description: '提交志愿服务时长证明，累计服务 60 小时。',
+    requestedScore: 4,
+    approvedScore: 4,
+    status: 'approved',
+    attachments: [createDemoAttachment('att-app-10-1', '志愿服务时长证明', '第一项目组 · 张三', '#22c55e')],
+    reviewLogs: [
+      {
+        id: 'log-app-10-submit',
+        action: 'submitted',
+        actorName: '张三',
+        comment: '提交申报材料',
+        score: 4,
+        createdAt: '2026-07-21T10:42:00.000Z',
+      },
+      {
+        id: 'log-app-10-review',
+        action: 'approved',
+        actorName: '管理员',
+        comment: '服务记录完整，按规则认定。',
+        score: 4,
+        createdAt: '2026-07-22T14:18:00.000Z',
+      },
+    ],
+    submittedAt: '2026-07-21T10:42:00.000Z',
+    reviewedAt: '2026-07-22T14:18:00.000Z',
+    reviewerName: '管理员',
+    reviewComment: '服务记录完整，按规则认定。',
+  },
+  {
+    id: 'app-11',
+    applicationNo: 'SQ-2026-0011',
+    studentId: '2021004',
+    categoryId: 'cat-research',
+    title: '项目文档整理成果',
+    description: '提交项目文档整理说明，申请项目与成果证明类加分。',
+    requestedScore: 6,
+    approvedScore: 0,
+    status: 'rejected',
+    attachments: [createDemoAttachment('att-app-11-1', '项目文档整理说明', '第一项目组 · 赵六', '#dc2626')],
+    reviewLogs: [
+      {
+        id: 'log-app-11-submit',
+        action: 'submitted',
+        actorName: '赵六',
+        comment: '提交申报材料',
+        score: 6,
+        createdAt: '2026-07-22T15:50:00.000Z',
+      },
+      {
+        id: 'log-app-11-review',
+        action: 'rejected',
+        actorName: '管理员',
+        comment: '材料只能证明参与整理，暂不符合成果类加分条件。',
+        score: 0,
+        createdAt: '2026-07-23T17:10:00.000Z',
+      },
+    ],
+    submittedAt: '2026-07-22T15:50:00.000Z',
+    reviewedAt: '2026-07-23T17:10:00.000Z',
+    reviewerName: '管理员',
+    reviewComment: '材料只能证明参与整理，暂不符合成果类加分条件。',
+  },
+  {
+    id: 'app-12',
+    applicationNo: 'SQ-2026-0012',
+    studentId: '2022001',
+    categoryId: 'cat-competition',
+    title: '跨组协作优秀案例',
+    description: '跨组协作案例入选优秀案例库，申请竞赛与评比成果类加分。',
+    requestedScore: 6,
+    approvedScore: 0,
+    status: 'pending',
+    attachments: [createDemoAttachment('att-app-12-1', '跨组协作优秀案例', '第二项目组 · 钱七', '#7c3aed')],
+    reviewLogs: [
+      {
+        id: 'log-app-12-submit',
+        action: 'submitted',
+        actorName: '钱七',
+        comment: '提交申报材料',
+        score: 6,
+        createdAt: '2026-07-27T09:25:00.000Z',
+      },
+    ],
+    submittedAt: '2026-07-27T09:25:00.000Z',
   },
 ]
 
