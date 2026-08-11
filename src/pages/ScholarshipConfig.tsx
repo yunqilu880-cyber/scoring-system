@@ -51,16 +51,16 @@ export default function ScholarshipConfig() {
     setShowModal(true)
   }
 
-  const saveSettings = () => {
-    updateSettings(settingsForm)
-    setMessage('评分规则已保存')
+  const saveSettings = async () => {
+    const result = await updateSettings(settingsForm)
+    setMessage(result.message)
   }
 
-  const saveCategory = () => {
+  const saveCategory = async () => {
     if (!categoryForm.name.trim()) return
-    if (editing) updateCategory(categoryForm)
-    else addCategory(categoryForm)
-    setShowModal(false)
+    const result = editing ? await updateCategory(categoryForm) : await addCategory(categoryForm)
+    setMessage(result.message)
+    if (result.ok) setShowModal(false)
   }
 
   const updateWeight = (key: keyof SystemSettings['weights'], value: number) => {
@@ -77,8 +77,8 @@ export default function ScholarshipConfig() {
     const file = event.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = loaded => {
-      const result = importData(String(loaded.target?.result ?? ''))
+    reader.onload = async loaded => {
+      const result = await importData(String(loaded.target?.result ?? ''))
       setMessage(result.message)
       if (result.settings) setSettingsForm(result.settings)
     }
@@ -86,9 +86,9 @@ export default function ScholarshipConfig() {
     if (backupFileRef.current) backupFileRef.current.value = ''
   }
 
-  const handleResetDemo = () => {
+  const handleResetDemo = async () => {
     if (!window.confirm('确认恢复演示数据？当前本地数据会被覆盖。')) return
-    const nextSettings = resetDemoData()
+    const nextSettings = await resetDemoData()
     setSettingsForm(nextSettings)
     setMessage('已恢复演示数据')
   }

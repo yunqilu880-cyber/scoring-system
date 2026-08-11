@@ -13,14 +13,14 @@ export default function ChangePasswordPage() {
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (newPassword !== confirmPassword) {
       setMessage('两次输入的新密码不一致')
       setSuccess(false)
       return
     }
-    const result = changePassword(oldPassword, newPassword)
+    const result = await changePassword(oldPassword, newPassword)
     setMessage(result.message)
     setSuccess(result.ok)
     if (result.ok) {

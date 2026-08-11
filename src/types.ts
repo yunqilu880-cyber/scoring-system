@@ -32,6 +32,8 @@ export interface StudentProfile {
   accountStatus: AccountStatus
   password: string
   mustChangePassword: boolean
+  inviteCode?: string
+  inviteUsedAt?: string
   activatedAt?: string
   lastLoginAt?: string
 }

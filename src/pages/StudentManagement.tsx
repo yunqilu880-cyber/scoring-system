@@ -1,11 +1,11 @@
 ﻿import { useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Download, Edit2, FileSpreadsheet, KeyRound, Lock, Plus, Search, Trash2, Unlock, Upload, X } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { departments, grades } from '../mockData'
 import { useStore } from '../store'
 import type { StudentProfile } from '../types'
 import { Badge, Button, EmptyState, FilterBar, PageHeader, Panel, StatCard } from '../components/ui'
+import { downloadCsv, parseCsv } from '../utils/csv'
 
 const emptyStudent: StudentProfile = {
   id: '',
@@ -94,17 +94,19 @@ export default function StudentManagement() {
     setShowModal(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name.trim() || !form.studentId.trim()) return
+    let result
     if (editing) {
-      updateStudent(form)
+      result = await updateStudent(form)
     } else {
-      addStudent(form)
+      result = await addStudent(form)
     }
-    setShowModal(false)
+    setImportMessage(result.message)
+    if (result.ok) setShowModal(false)
   }
 
-  const parseRows = (rows: unknown[][]) => {
+  const parseRows = async (rows: unknown[][]) => {
     const nextStudents: StudentProfile[] = []
     for (let index = 1; index < rows.length; index += 1) {
       const row = rows[index]
@@ -130,33 +132,20 @@ export default function StudentManagement() {
         mustChangePassword: true,
       })
     }
-    importStudents(nextStudents)
-    setImportMessage(`已导入或更新 ${nextStudents.length} 名用户`)
+    const result = await importStudents(nextStudents)
+    setImportMessage(result.message || `已导入或更新 ${nextStudents.length} 名用户`)
   }
 
   const handleImport = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
-    const ext = file.name.split('.').pop()?.toLowerCase()
     const reader = new FileReader()
 
-    if (ext === 'csv') {
-      reader.onload = loaded => {
-        const text = String(loaded.target?.result ?? '')
-        const rows = text.split('\n').filter(line => line.trim()).map(line => line.split(','))
-        parseRows(rows)
-      }
-      reader.readAsText(file)
-    } else {
-      reader.onload = loaded => {
-        const data = new Uint8Array(loaded.target?.result as ArrayBuffer)
-        const wb = XLSX.read(data, { type: 'array' })
-        const sheet = wb.Sheets[wb.SheetNames[0]]
-        const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 })
-        parseRows(rows)
-      }
-      reader.readAsArrayBuffer(file)
+    reader.onload = loaded => {
+      const text = String(loaded.target?.result ?? '')
+      void parseRows(parseCsv(text))
     }
+    reader.readAsText(file)
 
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -174,14 +163,14 @@ export default function StudentManagement() {
     setSelectedIds(prev => prev.size === filtered.length ? new Set() : new Set(filtered.map(student => student.id)))
   }
 
-  const batchDelete = () => {
-    selectedIds.forEach(id => deleteStudent(id))
+  const batchDelete = async () => {
+    await Promise.all(Array.from(selectedIds).map(id => deleteStudent(id)))
     setSelectedIds(new Set())
   }
 
   const exportStudents = () => {
     const source = selectedIds.size ? students.filter(student => selectedIds.has(student.id)) : filtered
-    const header = ['姓名', '用户编号', '所属单位', '分组/项目', '批次', '账号状态', '基础表现', '综合表现', '贡献表现', '规范记录', '基础指标分', '异常项数', '贡献时长', '限制记录', '激活时间', '最后登录']
+    const header = ['姓名', '用户编号', '所属单位', '分组/项目', '批次', '账号状态', '邀请码', '基础表现', '综合表现', '贡献表现', '规范记录', '基础指标分', '异常项数', '贡献时长', '限制记录', '激活时间', '最后登录']
     const rows = source.map(student => [
       student.name,
       student.studentId,
@@ -189,6 +178,7 @@ export default function StudentManagement() {
       student.major,
       student.grade,
       accountStatusLabels[student.accountStatus],
+      student.inviteCode ?? '',
       student.academicScore,
       student.moralScore,
       student.practiceScore,
@@ -200,10 +190,7 @@ export default function StudentManagement() {
       student.activatedAt ? new Date(student.activatedAt).toLocaleString('zh-CN') : '',
       student.lastLoginAt ? new Date(student.lastLoginAt).toLocaleString('zh-CN') : '',
     ])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '用户基础数据')
-    XLSX.writeFile(wb, '用户基础数据导出.xlsx')
+    downloadCsv('用户基础数据导出.csv', [header, ...rows])
   }
 
   return (
@@ -219,7 +206,7 @@ export default function StudentManagement() {
             className="flex-1 sm:flex-none"
           >
             <Upload className="w-4 h-4" />
-            导入
+            导入 CSV
           </Button>
           <Button
             onClick={exportStudents}
@@ -227,7 +214,7 @@ export default function StudentManagement() {
             className="flex-1 sm:flex-none"
           >
             <Download className="w-4 h-4" />
-            导出
+            导出 CSV
           </Button>
           <Button
             onClick={openAdd}
@@ -236,7 +223,7 @@ export default function StudentManagement() {
             <Plus className="w-4 h-4" />
             新增
           </Button>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleImport} />
+          <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleImport} />
         </>
         }
       />
@@ -307,9 +294,12 @@ export default function StudentManagement() {
                 </Badge>
               </div>
 
-              <div className="mt-3 rounded-lg bg-slate-50 border border-slate-100 p-3">
+                <div className="mt-3 rounded-lg bg-slate-50 border border-slate-100 p-3">
                 <p className="text-sm text-slate-700">{student.department}</p>
                 <p className="text-xs text-slate-500 mt-1">{student.major}</p>
+                {student.inviteCode && (
+                  <p className="text-xs text-blue-700 mt-2 font-medium">邀请码：{student.inviteCode}</p>
+                )}
                 <div className="grid grid-cols-2 gap-2 mt-3 text-sm">
                   <div>
                     <p className="text-xs text-slate-500">基础指标分</p>
@@ -341,9 +331,9 @@ export default function StudentManagement() {
 
               <div className="flex flex-wrap gap-2 mt-4">
                 <button
-                  onClick={() => {
-                    resetUserPassword(student.id)
-                    setImportMessage(`${student.name} 的密码已重置为 123456，账号回到未激活状态`)
+                  onClick={async () => {
+                    const result = await resetUserPassword(student.id)
+                    setImportMessage(`${student.name}：${result.message}`)
                   }}
                   className="inline-flex flex-1 items-center justify-center gap-1 h-9 px-3 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium"
                 >
@@ -351,7 +341,10 @@ export default function StudentManagement() {
                   重置
                 </button>
                 <button
-                  onClick={() => updateUserAccountStatus(student.id, student.accountStatus === 'locked' ? 'inactive' : 'locked')}
+                  onClick={async () => {
+                    const result = await updateUserAccountStatus(student.id, student.accountStatus === 'locked' ? 'inactive' : 'locked')
+                    setImportMessage(`${student.name}：${result.message}`)
+                  }}
                   className="inline-flex flex-1 items-center justify-center gap-1 h-9 px-3 rounded-lg bg-slate-100 text-slate-600 text-sm font-medium"
                 >
                   {student.accountStatus === 'locked' ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
@@ -383,6 +376,7 @@ export default function StudentManagement() {
                 </th>
                 <th className="px-4 py-3 font-medium">用户</th>
                 <th className="px-4 py-3 font-medium">账号状态</th>
+                <th className="px-4 py-3 font-medium">邀请码</th>
                 <th className="px-4 py-3 font-medium">单位/分组</th>
                 <th className="px-4 py-3 font-medium">基础指标分</th>
                 <th className="px-4 py-3 font-medium">基础表现</th>
@@ -420,6 +414,15 @@ export default function StudentManagement() {
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {student.inviteCode ? (
+                      <span className="font-mono text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded ring-1 ring-blue-100">
+                        {student.inviteCode}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">已激活</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <p className="text-slate-700">{student.department}</p>
                     <p className="text-xs text-slate-500">{student.major}</p>
@@ -436,9 +439,9 @@ export default function StudentManagement() {
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
                       <button
-                        onClick={() => {
-                          resetUserPassword(student.id)
-                          setImportMessage(`${student.name} 的密码已重置为 123456，账号回到未激活状态`)
+                        onClick={async () => {
+                          const result = await resetUserPassword(student.id)
+                          setImportMessage(`${student.name}：${result.message}`)
                         }}
                         className="p-1.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50"
                         aria-label="重置密码"
@@ -446,7 +449,10 @@ export default function StudentManagement() {
                         <KeyRound className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => updateUserAccountStatus(student.id, student.accountStatus === 'locked' ? 'inactive' : 'locked')}
+                        onClick={async () => {
+                          const result = await updateUserAccountStatus(student.id, student.accountStatus === 'locked' ? 'inactive' : 'locked')
+                          setImportMessage(`${student.name}：${result.message}`)
+                        }}
                         className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-500 hover:bg-slate-100"
                       >
                         {student.accountStatus === 'locked' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
@@ -460,7 +466,10 @@ export default function StudentManagement() {
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => deleteStudent(student.id)}
+                        onClick={async () => {
+                          const result = await deleteStudent(student.id)
+                          setImportMessage(`${student.name}：${result.message}`)
+                        }}
                         className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
                         aria-label="删除用户"
                       >

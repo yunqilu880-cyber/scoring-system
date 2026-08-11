@@ -67,6 +67,7 @@ export default function StudentPortal() {
   const [attachments, setAttachments] = useState<MaterialAttachment[]>([])
   const [message, setMessage] = useState('')
   const [preview, setPreview] = useState<MaterialAttachment | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const myApplications = useMemo(() => (
@@ -113,7 +114,7 @@ export default function StudentPortal() {
     }
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!student) {
       setMessage('没有找到当前用户档案')
@@ -128,7 +129,8 @@ export default function StudentPortal() {
       return
     }
 
-    addApplication({
+    setSubmitting(true)
+    const result = await addApplication({
       studentId: student.studentId,
       categoryId,
       title: title.trim(),
@@ -136,6 +138,11 @@ export default function StudentPortal() {
       requestedScore,
       attachments,
     })
+    setSubmitting(false)
+    if (!result.ok) {
+      setMessage(result.message)
+      return
+    }
     setTitle('')
     setDescription('')
     setAttachments([])
@@ -273,9 +280,10 @@ export default function StudentPortal() {
             <Button
               type="submit"
               className="w-full"
+              disabled={submitting}
             >
               <Send className="w-4 h-4" />
-              提交审核
+              {submitting ? '提交中...' : '提交审核'}
             </Button>
           </div>
         </form>

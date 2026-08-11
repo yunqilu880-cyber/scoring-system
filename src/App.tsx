@@ -12,8 +12,12 @@ import StudentManagement from './pages/StudentManagement'
 import StudentPortal from './pages/StudentPortal'
 
 function RequireAuth() {
-  const { currentUser } = useStore()
+  const { currentUser, isLoading } = useStore()
   const location = useLocation()
+
+  if (isLoading) {
+    return <div className="min-h-dvh flex items-center justify-center text-sm text-slate-500">正在加载系统...</div>
+  }
 
   if (!currentUser) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
@@ -27,7 +31,8 @@ function RequireAuth() {
 }
 
 function RoleRoute({ role, children }: { role: UserRole; children: React.ReactElement }) {
-  const { currentUser } = useStore()
+  const { currentUser, isLoading } = useStore()
+  if (isLoading) return null
   if (currentUser?.role !== role) {
     return <Navigate to={currentUser?.role === 'student' ? '/submit' : '/'} replace />
   }

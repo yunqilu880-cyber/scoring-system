@@ -1,8 +1,8 @@
 ﻿import { Fragment, useMemo, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, Download, Search, Trophy } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { useStore } from '../store'
 import { Button, EmptyState, FilterBar, PageHeader, Panel, StatCard } from '../components/ui'
+import { downloadCsv } from '../utils/csv'
 
 export default function EvaluationResults() {
   const { getCategoryById, rankings, settings } = useStore()
@@ -38,10 +38,7 @@ export default function EvaluationResults() {
       row.approvedApplications.map(app => `${app.applicationNo}-${getCategoryById(app.categoryId)?.name ?? '未知类型'}-${app.title}-${app.approvedScore}分`).join('；'),
       row.warnings.join('；'),
     ])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '总分排名')
-    XLSX.writeFile(wb, '评分系统排名结果.xlsx')
+    downloadCsv('评分系统排名结果.csv', [header, ...rows])
   }
 
   return (
@@ -55,7 +52,7 @@ export default function EvaluationResults() {
           className="w-full lg:w-auto"
         >
           <Download className="w-4 h-4" />
-          导出 Excel
+          导出 CSV
         </Button>
         }
       />

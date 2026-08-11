@@ -12,11 +12,6 @@ import type {
   SystemSettings,
   UserRole,
 } from './types'
-import { mockApplications, mockCategories, mockSettings, mockStudents } from './mockData'
-
-const DATA_KEY = 'score-review-system-data-v4'
-const USER_KEY = 'score-review-system-user-v4'
-const INITIAL_PASSWORD = '123456'
 
 interface StoredData {
   students: StudentProfile[]
@@ -34,119 +29,84 @@ interface ApplicationInput {
   attachments: MaterialAttachment[]
 }
 
+interface ActionResult {
+  ok: boolean
+  message: string
+  currentUser?: CurrentUser | null
+  state?: StoredData | null
+  settings?: SystemSettings
+}
+
 interface AppState extends StoredData {
   currentUser: CurrentUser | null
+  isLoading: boolean
   rankings: RankingResult[]
-  login: (role: UserRole, username: string, password: string) => { ok: boolean; message: string }
-  logout: () => void
-  changePassword: (oldPassword: string, newPassword: string) => { ok: boolean; message: string }
-  addStudent: (student: StudentProfile) => void
-  updateStudent: (student: StudentProfile) => void
-  deleteStudent: (id: string) => void
-  importStudents: (students: StudentProfile[]) => void
-  resetUserPassword: (id: string) => void
-  updateUserAccountStatus: (id: string, status: AccountStatus) => void
-  addCategory: (category: BonusCategory) => void
-  updateCategory: (category: BonusCategory) => void
-  deleteCategory: (id: string) => void
-  updateSettings: (settings: SystemSettings) => void
-  addApplication: (application: ApplicationInput) => void
-  deleteApplication: (id: string) => void
-  reviewApplication: (id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => void
-  exportData: () => void
-  importData: (raw: string) => { ok: boolean; message: string; settings?: SystemSettings }
-  resetDemoData: () => SystemSettings
+  login: (role: UserRole, username: string, password: string) => Promise<ActionResult>
+  activateWithInvite: (studentId: string, inviteCode: string, password: string) => Promise<ActionResult>
+  logout: () => Promise<void>
+  changePassword: (oldPassword: string, newPassword: string) => Promise<ActionResult>
+  addStudent: (student: StudentProfile) => Promise<ActionResult>
+  updateStudent: (student: StudentProfile) => Promise<ActionResult>
+  deleteStudent: (id: string) => Promise<ActionResult>
+  importStudents: (students: StudentProfile[]) => Promise<ActionResult>
+  resetUserPassword: (id: string) => Promise<ActionResult>
+  updateUserAccountStatus: (id: string, status: AccountStatus) => Promise<ActionResult>
+  addCategory: (category: BonusCategory) => Promise<ActionResult>
+  updateCategory: (category: BonusCategory) => Promise<ActionResult>
+  deleteCategory: (id: string) => Promise<ActionResult>
+  updateSettings: (settings: SystemSettings) => Promise<ActionResult>
+  addApplication: (application: ApplicationInput) => Promise<ActionResult>
+  deleteApplication: (id: string) => Promise<ActionResult>
+  reviewApplication: (id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => Promise<ActionResult>
+  exportData: () => Promise<void>
+  importData: (raw: string) => Promise<ActionResult>
+  resetDemoData: () => Promise<SystemSettings>
   getStudentByStudentId: (studentId: string) => StudentProfile | undefined
   getCategoryById: (id: string) => BonusCategory | undefined
   getStudentRanking: (studentId: string) => RankingResult | undefined
 }
 
+const emptySettings: SystemSettings = {
+  academicYear: '',
+  submissionDeadline: '',
+  weights: {
+    academic: 60,
+    moral: 15,
+    practice: 15,
+    sports: 10,
+    bonusCap: 20,
+  },
+}
+
+const emptyData: StoredData = {
+  students: [],
+  categories: [],
+  applications: [],
+  settings: emptySettings,
+}
+
 const AppContext = createContext<AppState | null>(null)
 
-const makeInitialData = (): StoredData => ({
-  students: mockStudents,
-  categories: mockCategories,
-  applications: mockApplications,
-  settings: mockSettings,
-})
-
-const normalizeStudents = (students: StudentProfile[]) => (
-  students.map(student => ({
-    ...student,
-    accountStatus: student.accountStatus ?? 'inactive',
-    password: student.password || INITIAL_PASSWORD,
-    mustChangePassword: student.mustChangePassword ?? student.accountStatus !== 'active',
-  }))
-)
-
-const makeApplicationNo = (sequence: number, academicYear: string) => {
-  const year = academicYear.match(/\d{4}/)?.[0] ?? new Date().getFullYear().toString()
-  return `SQ-${year}-${String(sequence).padStart(4, '0')}`
-}
-
-const normalizeApplications = (applications: BonusApplication[], students: StudentProfile[]) => (
-  applications.map((application, index) => {
-    const owner = students.find(student => student.studentId === application.studentId)
-    const applicationNo = application.applicationNo || makeApplicationNo(index + 1, mockSettings.academicYear)
-    const reviewLogs = application.reviewLogs?.length ? application.reviewLogs : [
-      {
-        id: `log-${application.id}-submit`,
-        action: 'submitted' as const,
-        actorName: owner?.name ?? application.studentId,
-        comment: '提交申报材料',
-        score: application.requestedScore,
-        createdAt: application.submittedAt,
-      },
-      ...(application.reviewedAt ? [{
-        id: `log-${application.id}-review`,
-        action: application.status === 'approved' ? 'approved' as const : 'rejected' as const,
-        actorName: application.reviewerName ?? '管理员',
-        comment: application.reviewComment || (application.status === 'approved' ? '审核通过' : '审核驳回'),
-        score: application.approvedScore,
-        createdAt: application.reviewedAt,
-      }] : []),
-    ]
-
-    return {
-      ...application,
-      applicationNo,
-      reviewLogs,
-    }
+const apiRequest = async <T,>(url: string, options: RequestInit = {}): Promise<T> => {
+  const hasBody = typeof options.body !== 'undefined'
+  const response = await fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers || {}),
+    },
   })
-)
 
-const readStoredData = (): StoredData => {
-  try {
-    const raw = window.localStorage.getItem(DATA_KEY)
-    if (!raw) return makeInitialData()
-    const parsed = JSON.parse(raw) as Partial<StoredData>
-    if (!Array.isArray(parsed.students) || !Array.isArray(parsed.categories) || !Array.isArray(parsed.applications) || !parsed.settings) {
-      return makeInitialData()
-    }
-    const students = normalizeStudents(parsed.students)
-    return {
-      students,
-      categories: parsed.categories,
-      applications: normalizeApplications(parsed.applications, students),
-      settings: parsed.settings,
-    }
-  } catch {
-    return makeInitialData()
+  const contentType = response.headers.get('content-type') || ''
+  const payload = contentType.includes('application/json') ? await response.json() : null
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.message || `请求失败：${response.status}`)
   }
-}
-
-const readStoredUser = (): CurrentUser | null => {
-  try {
-    const raw = window.localStorage.getItem(USER_KEY)
-    return raw ? JSON.parse(raw) as CurrentUser : null
-  } catch {
-    return null
-  }
+  return payload as T
 }
 
 const roundScore = (value: number) => Math.round(value * 10) / 10
-
-const clampScore = (value: number, max: number) => Math.max(0, Math.min(Number.isFinite(value) ? value : 0, max))
 
 const calculateBaseScore = (student: StudentProfile, settings: SystemSettings) => {
   const { weights } = settings
@@ -165,7 +125,7 @@ const createRankings = (students: StudentProfile[], applications: BonusApplicati
     const bonusScore = roundScore(Math.min(rawBonusScore, settings.weights.bonusCap))
     const baseScore = calculateBaseScore(student, settings)
     const warnings: string[] = []
-    if (student.failedCourses > 0) warnings.push(`异常项${student.failedCourses}个`)
+    if (student.failedCourses > 0) warnings.push(`异常项 ${student.failedCourses} 个`)
     if (student.hasPunishment) warnings.push('存在限制记录')
 
     return {
@@ -198,25 +158,51 @@ const createRankings = (students: StudentProfile[], applications: BonusApplicati
   })
 }
 
+const fallbackResult = (error: unknown): ActionResult => ({
+  ok: false,
+  message: error instanceof Error ? error.message : '操作失败，请稍后重试',
+})
+
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [initialData] = useState<StoredData>(() => readStoredData())
-  const [students, setStudents] = useState<StudentProfile[]>(initialData.students)
-  const [categories, setCategories] = useState<BonusCategory[]>(initialData.categories)
-  const [applications, setApplications] = useState<BonusApplication[]>(initialData.applications)
-  const [settings, setSettings] = useState<SystemSettings>(initialData.settings)
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => readStoredUser())
+  const [students, setStudents] = useState<StudentProfile[]>(emptyData.students)
+  const [categories, setCategories] = useState<BonusCategory[]>(emptyData.categories)
+  const [applications, setApplications] = useState<BonusApplication[]>(emptyData.applications)
+  const [settings, setSettings] = useState<SystemSettings>(emptyData.settings)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  const applyState = useCallback((state?: StoredData | null) => {
+    if (!state) return
+    setStudents(state.students || [])
+    setCategories(state.categories || [])
+    setApplications(state.applications || [])
+    setSettings(state.settings || emptySettings)
+  }, [])
+
+  const applyResult = useCallback((result: ActionResult) => {
+    if (typeof result.currentUser !== 'undefined') setCurrentUser(result.currentUser)
+    applyState(result.state)
+    return result
+  }, [applyState])
 
   useEffect(() => {
-    window.localStorage.setItem(DATA_KEY, JSON.stringify({ students, categories, applications, settings }))
-  }, [students, categories, applications, settings])
-
-  useEffect(() => {
-    if (currentUser) {
-      window.localStorage.setItem(USER_KEY, JSON.stringify(currentUser))
-    } else {
-      window.localStorage.removeItem(USER_KEY)
+    let active = true
+    apiRequest<ActionResult>('/api/auth/me')
+      .then(result => {
+        if (!active) return
+        setCurrentUser(result.currentUser || null)
+        applyState(result.state)
+      })
+      .catch(() => {
+        if (active) setCurrentUser(null)
+      })
+      .finally(() => {
+        if (active) setIsLoading(false)
+      })
+    return () => {
+      active = false
     }
-  }, [currentUser])
+  }, [applyState])
 
   const rankings = useMemo(() => createRankings(students, applications, settings), [students, applications, settings])
 
@@ -232,226 +218,151 @@ export function AppProvider({ children }: { children: ReactNode }) {
     rankings.find(row => row.studentId === studentId)
   ), [rankings])
 
-  const login = useCallback((role: UserRole, username: string, password: string) => {
-    const normalizedUsername = username.trim()
-    const normalizedPassword = password.trim()
-
-    if (role === 'admin') {
-      if (normalizedUsername === 'admin' && normalizedPassword === 'admin123') {
-        setCurrentUser({ id: 'admin', role: 'admin', name: '审核管理员', username: 'admin' })
-        return { ok: true, message: '登录成功' }
-      }
-      return { ok: false, message: '管理员账号或密码不正确' }
+  const login = useCallback(async (role: UserRole, username: string, password: string) => {
+    try {
+      const result = await apiRequest<ActionResult>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ role, username, password }),
+      })
+      return applyResult(result)
+    } catch (error) {
+      return fallbackResult(error)
     }
+  }, [applyResult])
 
-    const student = students.find(item => item.studentId === normalizedUsername)
-    if (!student) return { ok: false, message: '未找到该用户编号' }
-    if (student.accountStatus === 'locked') return { ok: false, message: '该账号已锁定，请联系管理员' }
-    if (normalizedPassword !== student.password) return { ok: false, message: '用户编号或密码不正确' }
-
-    const lastLoginAt = new Date().toISOString()
-    setStudents(prev => prev.map(item => item.id === student.id ? { ...item, lastLoginAt } : item))
-
-    setCurrentUser({
-      id: student.id,
-      role: 'student',
-      name: student.name,
-      username: student.studentId,
-      studentId: student.studentId,
-      mustChangePassword: student.mustChangePassword,
-    })
-    return { ok: true, message: student.mustChangePassword ? '首次登录需要修改密码' : '登录成功' }
-  }, [students])
-
-  const logout = useCallback(() => setCurrentUser(null), [])
-
-  const changePassword = useCallback((oldPassword: string, newPassword: string) => {
-    if (!currentUser?.studentId) return { ok: false, message: '请先登录用户账号' }
-    const student = students.find(item => item.studentId === currentUser.studentId)
-    if (!student) return { ok: false, message: '未找到当前用户档案' }
-    if (oldPassword !== student.password) return { ok: false, message: '原密码不正确' }
-    if (newPassword.length < 6) return { ok: false, message: '新密码至少 6 位' }
-    if (newPassword === INITIAL_PASSWORD) return { ok: false, message: '新密码不能继续使用初始密码' }
-    if (newPassword === oldPassword) return { ok: false, message: '新密码不能与原密码相同' }
-
-    const now = new Date().toISOString()
-    setStudents(prev => prev.map(item => item.id === student.id ? {
-      ...item,
-      password: newPassword,
-      accountStatus: 'active',
-      mustChangePassword: false,
-      activatedAt: item.activatedAt ?? now,
-      lastLoginAt: now,
-    } : item))
-    setCurrentUser(prev => prev ? { ...prev, mustChangePassword: false } : prev)
-    return { ok: true, message: '密码已修改，账号已激活' }
-  }, [currentUser, students])
-
-  const addStudent = useCallback((student: StudentProfile) => {
-    setStudents(prev => [...prev, ...normalizeStudents([student])])
-  }, [])
-
-  const updateStudent = useCallback((student: StudentProfile) => {
-    setStudents(prev => prev.map(item => item.id === student.id ? student : item))
-  }, [])
-
-  const deleteStudent = useCallback((id: string) => {
-    const deleted = students.find(student => student.id === id)
-    setStudents(prev => prev.filter(student => student.id !== id))
-    if (deleted) {
-      setApplications(prev => prev.filter(application => application.studentId !== deleted.studentId))
+  const activateWithInvite = useCallback(async (studentId: string, inviteCode: string, password: string) => {
+    try {
+      const result = await apiRequest<ActionResult>('/api/auth/activate', {
+        method: 'POST',
+        body: JSON.stringify({ studentId, inviteCode, password }),
+      })
+      return applyResult(result)
+    } catch (error) {
+      return fallbackResult(error)
     }
-  }, [students])
+  }, [applyResult])
 
-  const importStudents = useCallback((newStudents: StudentProfile[]) => {
-    setStudents(prev => {
-      const byStudentId = new Map(prev.map(student => [student.studentId, student]))
-      for (const student of normalizeStudents(newStudents)) {
-        const existing = byStudentId.get(student.studentId)
-        byStudentId.set(student.studentId, existing ? {
-          ...student,
-          id: existing.id,
-          accountStatus: existing.accountStatus,
-          password: existing.password,
-          mustChangePassword: existing.mustChangePassword,
-          activatedAt: existing.activatedAt,
-          lastLoginAt: existing.lastLoginAt,
-        } : student)
-      }
-      return Array.from(byStudentId.values())
-    })
-  }, [])
-
-  const resetUserPassword = useCallback((id: string) => {
-    setStudents(prev => prev.map(student => student.id === id ? {
-      ...student,
-      password: INITIAL_PASSWORD,
-      accountStatus: 'inactive',
-      mustChangePassword: true,
-      activatedAt: undefined,
-    } : student))
-  }, [])
-
-  const updateUserAccountStatus = useCallback((id: string, status: AccountStatus) => {
-    setStudents(prev => prev.map(student => student.id === id ? {
-      ...student,
-      accountStatus: status,
-      mustChangePassword: status === 'active' ? student.mustChangePassword : true,
-    } : student))
-  }, [])
-
-  const addCategory = useCallback((category: BonusCategory) => {
-    setCategories(prev => [...prev, category])
-  }, [])
-
-  const updateCategory = useCallback((category: BonusCategory) => {
-    setCategories(prev => prev.map(item => item.id === category.id ? category : item))
-  }, [])
-
-  const deleteCategory = useCallback((id: string) => {
-    setCategories(prev => prev.filter(category => category.id !== id))
-  }, [])
-
-  const updateSettings = useCallback((nextSettings: SystemSettings) => {
-    setSettings(nextSettings)
-  }, [])
-
-  const addApplication = useCallback((application: ApplicationInput) => {
-    const category = categories.find(item => item.id === application.categoryId)
-    const requestedScore = clampScore(application.requestedScore, category?.maxScore ?? settings.weights.bonusCap)
-    const owner = students.find(student => student.studentId === application.studentId)
-    const now = new Date().toISOString()
-    const created: BonusApplication = {
-      ...application,
-      id: `app-${Date.now()}`,
-      applicationNo: makeApplicationNo(applications.length + 1, settings.academicYear),
-      requestedScore,
-      approvedScore: 0,
-      status: 'pending',
-      reviewLogs: [
-        {
-          id: `log-${Date.now()}-submit`,
-          action: 'submitted',
-          actorName: owner?.name ?? application.studentId,
-          comment: '提交申报材料',
-          score: requestedScore,
-          createdAt: now,
-        },
-      ],
-      submittedAt: now,
+  const logout = useCallback(async () => {
+    try {
+      await apiRequest<ActionResult>('/api/auth/logout', { method: 'POST' })
+    } finally {
+      setCurrentUser(null)
+      applyState(emptyData)
     }
-    setApplications(prev => [created, ...prev])
-  }, [applications.length, categories, settings.academicYear, settings.weights.bonusCap, students])
+  }, [applyState])
 
-  const deleteApplication = useCallback((id: string) => {
-    setApplications(prev => prev.filter(application => application.id !== id))
-  }, [])
+  const changePassword = useCallback(async (oldPassword: string, newPassword: string) => {
+    try {
+      const result = await apiRequest<ActionResult>('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ oldPassword, newPassword }),
+      })
+      return applyResult(result)
+    } catch (error) {
+      return fallbackResult(error)
+    }
+  }, [applyResult])
 
-  const reviewApplication = useCallback((id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => {
-    setApplications(prev => prev.map(application => {
-      if (application.id !== id) return application
-      const category = categories.find(item => item.id === application.categoryId)
-      const reviewedAt = new Date().toISOString()
-      const finalScore = status === 'approved' ? clampScore(approvedScore, category?.maxScore ?? settings.weights.bonusCap) : 0
-      const reviewComment = comment.trim()
-      return {
-        ...application,
-        status,
-        approvedScore: finalScore,
-        reviewedAt,
-        reviewerName: currentUser?.name ?? '管理员',
-        reviewComment,
-        reviewLogs: [
-          ...application.reviewLogs,
-          {
-            id: `log-${Date.now()}-review`,
-            action: status,
-            actorName: currentUser?.name ?? '管理员',
-            comment: reviewComment || (status === 'approved' ? '审核通过' : '审核驳回'),
-            score: finalScore,
-            createdAt: reviewedAt,
-          },
-        ],
-      }
-    }))
-  }, [categories, currentUser?.name, settings.weights.bonusCap])
+  const runMutation = useCallback(async (url: string, options: RequestInit = {}) => {
+    try {
+      const result = await apiRequest<ActionResult>(url, options)
+      return applyResult(result)
+    } catch (error) {
+      return fallbackResult(error)
+    }
+  }, [applyResult])
 
-  const exportData = useCallback(() => {
-    const payload = JSON.stringify({ students, categories, applications, settings }, null, 2)
-    const blob = new Blob([payload], { type: 'application/json;charset=utf-8' })
+  const addStudent = useCallback((student: StudentProfile) => runMutation('/api/students', {
+    method: 'POST',
+    body: JSON.stringify({ student }),
+  }), [runMutation])
+
+  const updateStudent = useCallback((student: StudentProfile) => runMutation(`/api/students/${student.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ student }),
+  }), [runMutation])
+
+  const deleteStudent = useCallback((id: string) => runMutation(`/api/students/${id}`, {
+    method: 'DELETE',
+  }), [runMutation])
+
+  const importStudents = useCallback((nextStudents: StudentProfile[]) => runMutation('/api/students/import', {
+    method: 'POST',
+    body: JSON.stringify({ students: nextStudents }),
+  }), [runMutation])
+
+  const resetUserPassword = useCallback((id: string) => runMutation(`/api/students/${id}/reset-password`, {
+    method: 'POST',
+  }), [runMutation])
+
+  const updateUserAccountStatus = useCallback((id: string, status: AccountStatus) => runMutation(`/api/students/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  }), [runMutation])
+
+  const addCategory = useCallback((category: BonusCategory) => runMutation('/api/categories', {
+    method: 'POST',
+    body: JSON.stringify({ category }),
+  }), [runMutation])
+
+  const updateCategory = useCallback((category: BonusCategory) => runMutation(`/api/categories/${category.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ category }),
+  }), [runMutation])
+
+  const deleteCategory = useCallback((id: string) => runMutation(`/api/categories/${id}`, {
+    method: 'DELETE',
+  }), [runMutation])
+
+  const updateSettings = useCallback((nextSettings: SystemSettings) => runMutation('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ settings: nextSettings }),
+  }), [runMutation])
+
+  const addApplication = useCallback((application: ApplicationInput) => runMutation('/api/applications', {
+    method: 'POST',
+    body: JSON.stringify({ application }),
+  }), [runMutation])
+
+  const deleteApplication = useCallback((id: string) => runMutation(`/api/applications/${id}`, {
+    method: 'DELETE',
+  }), [runMutation])
+
+  const reviewApplication = useCallback((id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => runMutation(`/api/applications/${id}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ status, approvedScore, comment }),
+  }), [runMutation])
+
+  const exportData = useCallback(async () => {
+    const response = await fetch('/api/export', { credentials: 'include' })
+    if (!response.ok) throw new Error('导出失败')
+    const blob = await response.blob()
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
     link.download = `评分系统数据备份-${new Date().toISOString().slice(0, 10)}.json`
     link.click()
     URL.revokeObjectURL(url)
-  }, [applications, categories, settings, students])
+  }, [])
 
-  const importData = useCallback((raw: string) => {
+  const importData = useCallback(async (raw: string) => {
     try {
-      const parsed = JSON.parse(raw) as Partial<StoredData>
-      if (!Array.isArray(parsed.students) || !Array.isArray(parsed.categories) || !Array.isArray(parsed.applications) || !parsed.settings) {
-      return { ok: false, message: '备份文件格式不正确' }
-      }
-      const students = normalizeStudents(parsed.students)
-      setStudents(students)
-      setCategories(parsed.categories)
-      setApplications(normalizeApplications(parsed.applications, students))
-      setSettings(parsed.settings)
-      return { ok: true, message: '数据已恢复', settings: parsed.settings }
-    } catch {
-      return { ok: false, message: '备份文件解析失败' }
+      const result = await apiRequest<ActionResult>('/api/import-json', {
+        method: 'POST',
+        body: JSON.stringify({ raw }),
+      })
+      applyResult(result)
+      return { ...result, settings: result.state?.settings }
+    } catch (error) {
+      return fallbackResult(error)
     }
-  }, [])
+  }, [applyResult])
 
-  const resetDemoData = useCallback(() => {
-    const demo = makeInitialData()
-    setStudents(demo.students)
-    setCategories(demo.categories)
-    setApplications(demo.applications)
-    setSettings(demo.settings)
-    return demo.settings
-  }, [])
+  const resetDemoData = useCallback(async () => {
+    const result = await apiRequest<ActionResult>('/api/reset-demo', { method: 'POST' })
+    applyResult(result)
+    return result.state?.settings || emptySettings
+  }, [applyResult])
 
   const value: AppState = {
     students,
@@ -459,8 +370,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     applications,
     settings,
     currentUser,
+    isLoading,
     rankings,
     login,
+    activateWithInvite,
     logout,
     changePassword,
     addStudent,
