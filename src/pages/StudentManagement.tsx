@@ -40,6 +40,13 @@ const accountStatusTones = {
 
 const toText = (value: unknown) => String(value ?? '').trim()
 const toNumber = (value: unknown) => Number.parseFloat(toText(value)) || 0
+const studentImportHeader = ['姓名', '用户编号', '所属单位', '分组/项目', '批次', '基础表现', '综合表现', '贡献表现', '规范记录', '异常项数', '贡献时长', '限制记录']
+const studentTemplateRows = [
+  studentImportHeader,
+  ['张三', '2026001', '第一项目组', '运营支持', 'A批次', 90, 92, 88, 95, 0, 30, '否'],
+  ['李四', '2026002', '第二项目组', '技术支持', 'A批次', 86, 90, 94, 91, 0, 45, '否'],
+  ['王五', '2026003', '第三项目组', '数据分析', 'B批次', 82, 85, 89, 87, 1, 20, '是'],
+]
 
 export default function StudentManagement() {
   const {
@@ -193,6 +200,10 @@ export default function StudentManagement() {
     downloadCsv('用户基础数据导出.csv', [header, ...rows])
   }
 
+  const downloadTemplate = () => {
+    downloadCsv('用户名单导入模板.csv', studentTemplateRows)
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -201,12 +212,20 @@ export default function StudentManagement() {
         actions={
         <>
           <Button
+            onClick={downloadTemplate}
+            variant="secondary"
+            className="flex-1 sm:flex-none"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            下载模板
+          </Button>
+          <Button
             onClick={() => fileRef.current?.click()}
             variant="secondary"
             className="flex-1 sm:flex-none"
           >
             <Upload className="w-4 h-4" />
-            导入 CSV
+            一键导入名单
           </Button>
           <Button
             onClick={exportStudents}
@@ -214,7 +233,7 @@ export default function StudentManagement() {
             className="flex-1 sm:flex-none"
           >
             <Download className="w-4 h-4" />
-            导出 CSV
+            一键导出名单
           </Button>
           <Button
             onClick={openAdd}
