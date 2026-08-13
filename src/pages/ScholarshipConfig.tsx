@@ -2,7 +2,7 @@
 import type { ChangeEvent } from 'react'
 import { Download, Edit2, Plus, RotateCcw, Save, Settings2, Trash2, Upload, X } from 'lucide-react'
 import { useStore } from '../store'
-import type { BonusCategory, SystemSettings } from '../types'
+import type { ApplicationBatch, BonusCategory, SystemSettings } from '../types'
 import { Badge, Button, PageHeader, Panel, SectionHeader } from '../components/ui'
 
 const emptyCategory: BonusCategory = {
@@ -14,15 +14,28 @@ const emptyCategory: BonusCategory = {
   active: true,
 }
 
+const emptyBatch: ApplicationBatch = {
+  id: '',
+  name: '',
+  startDate: '',
+  endDate: '',
+  description: '',
+  active: true,
+}
+
 export default function ScholarshipConfig() {
   const {
+    addBatch,
     addCategory,
+    batches,
     categories,
+    deleteBatch,
     deleteCategory,
     exportData,
     importData,
     resetDemoData,
     settings,
+    updateBatch,
     updateCategory,
     updateSettings,
   } = useStore()
@@ -30,6 +43,9 @@ export default function ScholarshipConfig() {
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<BonusCategory | null>(null)
   const [categoryForm, setCategoryForm] = useState<BonusCategory>(emptyCategory)
+  const [showBatchModal, setShowBatchModal] = useState(false)
+  const [editingBatch, setEditingBatch] = useState<ApplicationBatch | null>(null)
+  const [batchForm, setBatchForm] = useState<ApplicationBatch>(emptyBatch)
   const [message, setMessage] = useState('')
   const backupFileRef = useRef<HTMLInputElement>(null)
 
@@ -43,6 +59,18 @@ export default function ScholarshipConfig() {
     setEditing(null)
     setCategoryForm({ ...emptyCategory, id: `cat-${Date.now()}` })
     setShowModal(true)
+  }
+
+  const openAddBatch = () => {
+    setEditingBatch(null)
+    setBatchForm({ ...emptyBatch, id: `batch-${Date.now()}` })
+    setShowBatchModal(true)
+  }
+
+  const openEditBatch = (batch: ApplicationBatch) => {
+    setEditingBatch(batch)
+    setBatchForm({ ...batch })
+    setShowBatchModal(true)
   }
 
   const openEdit = (category: BonusCategory) => {
@@ -61,6 +89,13 @@ export default function ScholarshipConfig() {
     const result = editing ? await updateCategory(categoryForm) : await addCategory(categoryForm)
     setMessage(result.message)
     if (result.ok) setShowModal(false)
+  }
+
+  const saveBatch = async () => {
+    if (!batchForm.name.trim()) return
+    const result = editingBatch ? await updateBatch(batchForm) : await addBatch(batchForm)
+    setMessage(result.message)
+    if (result.ok) setShowBatchModal(false)
   }
 
   const updateWeight = (key: keyof SystemSettings['weights'], value: number) => {
@@ -176,6 +211,69 @@ export default function ScholarshipConfig() {
 
       <Panel className="overflow-hidden">
         <SectionHeader
+          title="申报批次"
+          description="按时间或业务场景管理不同申报入口，例如上半年综测、专项奖学金、职称申报"
+          action={
+          <Button
+            onClick={openAddBatch}
+            size="sm"
+          >
+            <Plus className="w-4 h-4" />
+            添加批次
+          </Button>
+          }
+        />
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200 text-left text-slate-500">
+              <tr>
+                <th className="px-5 py-3 font-medium">批次名称</th>
+                <th className="px-5 py-3 font-medium">时间范围</th>
+                <th className="px-5 py-3 font-medium">状态</th>
+                <th className="px-5 py-3 font-medium">说明</th>
+                <th className="px-5 py-3 font-medium text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {batches.map(batch => (
+                <tr key={batch.id} className="hover:bg-slate-50/80">
+                  <td className="px-5 py-4 font-semibold text-slate-900">{batch.name}</td>
+                  <td className="px-5 py-4 text-slate-700">{batch.startDate || '-'} 至 {batch.endDate || '-'}</td>
+                  <td className="px-5 py-4">
+                    <Badge tone={batch.active ? 'emerald' : 'slate'}>{batch.active ? '启用' : '停用'}</Badge>
+                  </td>
+                  <td className="px-5 py-4 text-slate-500 max-w-md">{batch.description || '暂无说明'}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex justify-end gap-1">
+                      <button
+                        onClick={() => openEditBatch(batch)}
+                        className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                        aria-label="编辑批次"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const result = await deleteBatch(batch.id)
+                          setMessage(result.message)
+                        }}
+                        className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
+                        aria-label="删除批次"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <Panel className="overflow-hidden">
+        <SectionHeader
           title="加分类型"
           description="用户上传加分项时会从启用的类型中选择"
           action={
@@ -273,6 +371,51 @@ export default function ScholarshipConfig() {
                 取消
               </Button>
               <Button onClick={saveCategory}>
+                保存
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBatchModal && (
+        <div className="fixed inset-0 bg-blue-950/30 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl shadow-slate-900/20 w-full max-w-xl overflow-hidden">
+            <div className="h-14 px-5 flex items-center justify-between border-b border-slate-100">
+              <h2 className="font-bold text-slate-900">{editingBatch ? '编辑申报批次' : '添加申报批次'}</h2>
+              <button onClick={() => setShowBatchModal(false)} className="p-1.5 rounded hover:bg-slate-100" aria-label="关闭">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <TextInput label="批次名称" value={batchForm.name} onChange={value => setBatchForm({ ...batchForm, name: value })} />
+              <div className="grid grid-cols-2 gap-3">
+                <TextInput label="开始日期" value={batchForm.startDate} onChange={value => setBatchForm({ ...batchForm, startDate: value })} />
+                <TextInput label="结束日期" value={batchForm.endDate} onChange={value => setBatchForm({ ...batchForm, endDate: value })} />
+              </div>
+              <label className="block">
+                <span className="block text-sm font-medium text-slate-700 mb-1">批次说明</span>
+                <textarea
+                  value={batchForm.description}
+                  onChange={event => setBatchForm({ ...batchForm, description: event.target.value })}
+                  className="w-full min-h-24 px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="例如：用于上半年综测或专项奖学金申报"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={batchForm.active}
+                  onChange={event => setBatchForm({ ...batchForm, active: event.target.checked })}
+                />
+                启用该批次
+              </label>
+            </div>
+            <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <Button onClick={() => setShowBatchModal(false)} variant="secondary">
+                取消
+              </Button>
+              <Button onClick={saveBatch}>
                 保存
               </Button>
             </div>

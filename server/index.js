@@ -84,11 +84,31 @@ const seedCategories = [
   { id: 'cat-honor', name: '荣誉与表彰', defaultScore: 4, maxScore: 8, description: '个人荣誉、团队表彰、优秀成员等证明。', active: true },
 ]
 
+const seedBatches = [
+  {
+    id: 'batch-main',
+    name: '默认申报批次',
+    startDate: '2026-07-01',
+    endDate: '2026-08-31',
+    description: '用于当前评分周期的综合加分项申报。',
+    active: true,
+  },
+  {
+    id: 'batch-scholarship',
+    name: '专项奖学金申报',
+    startDate: '2026-03-01',
+    endDate: '2026-03-31',
+    description: '用于专项奖学金相关证明材料申报，可按实际时间启用。',
+    active: false,
+  },
+]
+
 const seedApplications = [
   {
     id: 'app-1',
     applicationNo: 'SQ-2026-0001',
     studentId: '2021001',
+    batchId: 'batch-main',
     categoryId: 'cat-competition',
     title: '年度技能评比二等奖',
     description: '参加年度技能评比，获得二等奖。',
@@ -109,6 +129,7 @@ const seedApplications = [
     id: 'app-2',
     applicationNo: 'SQ-2026-0002',
     studentId: '2022001',
+    batchId: 'batch-main',
     categoryId: 'cat-research',
     title: '重点项目结项优秀',
     description: '参与重点项目并完成结项，验收结果优秀。',
@@ -129,6 +150,7 @@ const seedApplications = [
     id: 'app-3',
     applicationNo: 'SQ-2026-0003',
     studentId: '2021002',
+    batchId: 'batch-main',
     categoryId: 'cat-volunteer',
     title: '专项服务支持',
     description: '累计参与专项服务支持 42 小时。',
@@ -170,6 +192,7 @@ const createSeedData = async () => ({
       lastLoginAt: accountStatus === 'active' ? '2026-07-24T10:12:00.000Z' : undefined,
     }
   })),
+  batches: cloneJson(seedBatches),
   categories: cloneJson(seedCategories),
   applications: cloneJson(seedApplications),
   settings: {
@@ -189,6 +212,7 @@ const createSeedData = async () => ({
 const migrateDb = async source => {
   const next = {
     students: Array.isArray(source.students) ? source.students : [],
+    batches: Array.isArray(source.batches) ? source.batches : seedBatches,
     categories: Array.isArray(source.categories) ? source.categories : seedCategories,
     applications: Array.isArray(source.applications) ? source.applications : [],
     settings: source.settings || (await createSeedData()).settings,
@@ -208,6 +232,7 @@ const migrateDb = async source => {
   next.applications = next.applications.map((application, index) => ({
     ...application,
     id: application.id || uid('app'),
+    batchId: application.batchId || next.batches[0]?.id,
     applicationNo: application.applicationNo || `SQ-${new Date().getFullYear()}-${String(index + 1).padStart(4, '0')}`,
     reviewLogs: Array.isArray(application.reviewLogs) ? application.reviewLogs : [],
     attachments: Array.isArray(application.attachments) ? application.attachments : [],
@@ -259,6 +284,7 @@ const publicStudent = (student, viewer) => {
 
 const publicState = viewer => ({
   students: db.students.map(student => publicStudent(student, viewer)),
+  batches: db.batches,
   categories: db.categories,
   applications: db.applications,
   settings: db.settings,
@@ -674,6 +700,57 @@ app.patch('/api/students/:id/status', requireAuth, requireAdmin, async (req, res
   apiOk(req, res, '账号状态已更新')
 })
 
+app.post('/api/batches', requireAuth, requireAdmin, async (req, res) => {
+  const batch = req.body?.batch || {}
+  if (!String(batch.name || '').trim()) {
+    res.status(400).json({ ok: false, message: '批次名称不能为空' })
+    return
+  }
+  db.batches.push({
+    id: batch.id || uid('batch'),
+    name: String(batch.name).trim(),
+    startDate: String(batch.startDate || ''),
+    endDate: String(batch.endDate || ''),
+    description: String(batch.description || ''),
+    active: Boolean(batch.active),
+  })
+  await saveDb()
+  apiOk(req, res, '申报批次已新增')
+})
+
+app.put('/api/batches/:id', requireAuth, requireAdmin, async (req, res) => {
+  const index = db.batches.findIndex(batch => batch.id === req.params.id)
+  if (index < 0) {
+    res.status(404).json({ ok: false, message: '未找到申报批次' })
+    return
+  }
+  const batch = req.body?.batch || {}
+  db.batches[index] = {
+    ...db.batches[index],
+    ...batch,
+    id: req.params.id,
+    name: String(batch.name || db.batches[index].name).trim(),
+    startDate: String(batch.startDate || ''),
+    endDate: String(batch.endDate || ''),
+    description: String(batch.description || ''),
+    active: Boolean(batch.active),
+  }
+  await saveDb()
+  apiOk(req, res, '申报批次已保存')
+})
+
+app.delete('/api/batches/:id', requireAuth, requireAdmin, async (req, res) => {
+  if (db.applications.some(application => application.batchId === req.params.id)) {
+    db.batches = db.batches.map(batch => batch.id === req.params.id ? { ...batch, active: false } : batch)
+    await saveDb()
+    apiOk(req, res, '该批次已有申报记录，已自动停用')
+    return
+  }
+  db.batches = db.batches.filter(batch => batch.id !== req.params.id)
+  await saveDb()
+  apiOk(req, res, '申报批次已删除')
+})
+
 app.post('/api/categories', requireAuth, requireAdmin, async (req, res) => {
   db.categories.push({ ...req.body?.category, id: req.body?.category?.id || uid('cat') })
   await saveDb()
@@ -709,9 +786,11 @@ app.post('/api/applications', requireAuth, async (req, res) => {
     return
   }
   const student = db.students.find(item => item.studentId === input.studentId)
+  const activeBatches = db.batches.filter(item => item.active)
+  const batch = activeBatches.find(item => item.id === input.batchId) || activeBatches[0]
   const category = db.categories.find(item => item.id === input.categoryId && item.active)
-  if (!student || !category) {
-    res.status(400).json({ ok: false, message: '用户或加分类型不存在' })
+  if (!student || !category || !batch) {
+    res.status(400).json({ ok: false, message: '用户、申报批次或加分类型不存在' })
     return
   }
   const requestedScore = clampScore(Number(input.requestedScore), category.maxScore)
@@ -720,6 +799,7 @@ app.post('/api/applications', requireAuth, async (req, res) => {
     id: uid('app'),
     applicationNo: makeApplicationNo(db),
     studentId: student.studentId,
+    batchId: batch.id,
     categoryId: category.id,
     title: String(input.title || '').trim(),
     description: String(input.description || '').trim(),
@@ -787,6 +867,7 @@ app.post('/api/applications/:id/review', requireAuth, requireAdmin, async (req, 
 app.get('/api/export', requireAuth, requireAdmin, (_req, res) => {
   const payload = {
     students: db.students,
+    batches: db.batches,
     categories: db.categories,
     applications: db.applications,
     settings: db.settings,

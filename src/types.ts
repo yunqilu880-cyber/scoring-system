@@ -52,6 +52,15 @@ export interface SystemSettings {
   weights: ScoreWeights
 }
 
+export interface ApplicationBatch {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  description: string
+  active: boolean
+}
+
 export interface BonusCategory {
   id: string
   name: string
@@ -83,6 +92,7 @@ export interface BonusApplication {
   id: string
   applicationNo: string
   studentId: string
+  batchId?: string
   categoryId: string
   title: string
   description: string

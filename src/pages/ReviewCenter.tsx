@@ -45,8 +45,9 @@ const formatDate = (value?: string) => value
   : '-'
 
 export default function ReviewCenter() {
-  const { applications, categories, getCategoryById, getStudentByStudentId, reviewApplication } = useStore()
+  const { applications, batches, categories, getCategoryById, getStudentByStudentId, reviewApplication } = useStore()
   const [statusFilter, setStatusFilter] = useState<'all' | ApplicationStatus>('pending')
+  const [batchFilter, setBatchFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [preview, setPreview] = useState<MaterialAttachment | null>(null)
@@ -54,6 +55,7 @@ export default function ReviewCenter() {
   const filtered = useMemo(() => applications.filter(application => {
     const student = getStudentByStudentId(application.studentId)
     if (statusFilter !== 'all' && application.status !== statusFilter) return false
+    if (batchFilter && application.batchId !== batchFilter) return false
     if (categoryFilter && application.categoryId !== categoryFilter) return false
     if (search.trim()) {
       const keyword = search.trim()
@@ -65,7 +67,7 @@ export default function ReviewCenter() {
   }).sort((a, b) => {
     if (a.status !== b.status) return a.status === 'pending' ? -1 : 1
     return b.submittedAt.localeCompare(a.submittedAt)
-  }), [applications, categoryFilter, getStudentByStudentId, search, statusFilter])
+  }), [applications, batchFilter, categoryFilter, getStudentByStudentId, search, statusFilter])
 
   const stats = [
     { label: '待审核', value: applications.filter(item => item.status === 'pending').length, tone: 'amber' as const },
@@ -104,6 +106,16 @@ export default function ReviewCenter() {
           ))}
         </select>
         <select
+          value={batchFilter}
+          onChange={event => setBatchFilter(event.target.value)}
+          className="h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+          <option value="">全部批次</option>
+          {batches.map(batch => (
+            <option key={batch.id} value={batch.id}>{batch.name}</option>
+          ))}
+        </select>
+        <select
           value={categoryFilter}
           onChange={event => setCategoryFilter(event.target.value)}
           className="h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -123,6 +135,7 @@ export default function ReviewCenter() {
             <ReviewCard
               key={application.id}
               application={application}
+              batchName={batches.find(batch => batch.id === application.batchId)?.name ?? '默认批次'}
               categoryName={getCategoryById(application.categoryId)?.name ?? '未知类型'}
               categoryMaxScore={getCategoryById(application.categoryId)?.maxScore ?? 0}
               student={getStudentByStudentId(application.studentId)}
@@ -154,6 +167,7 @@ export default function ReviewCenter() {
 
 function ReviewCard({
   application,
+  batchName,
   categoryName,
   categoryMaxScore,
   student,
@@ -161,6 +175,7 @@ function ReviewCard({
   onReview,
 }: {
   application: BonusApplication
+  batchName: string
   categoryName: string
   categoryMaxScore: number
   student?: ReturnType<typeof useStore>['students'][number]
@@ -181,6 +196,7 @@ function ReviewCard({
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={statusTones[application.status]}>{statusLabels[application.status]}</Badge>
               <Badge>{application.applicationNo}</Badge>
+              <Badge>{batchName}</Badge>
               <Badge>{categoryName}</Badge>
               <span className="text-xs text-slate-400">提交于 {formatDate(application.submittedAt)}</span>
             </div>

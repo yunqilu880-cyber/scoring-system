@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import type {
   AccountStatus,
+  ApplicationBatch,
   BonusApplication,
   BonusCategory,
   CurrentUser,
@@ -15,6 +16,7 @@ import type {
 
 interface StoredData {
   students: StudentProfile[]
+  batches: ApplicationBatch[]
   categories: BonusCategory[]
   applications: BonusApplication[]
   settings: SystemSettings
@@ -22,6 +24,7 @@ interface StoredData {
 
 interface ApplicationInput {
   studentId: string
+  batchId?: string
   categoryId: string
   title: string
   description: string
@@ -51,6 +54,9 @@ interface AppState extends StoredData {
   importStudents: (students: StudentProfile[]) => Promise<ActionResult>
   resetUserPassword: (id: string) => Promise<ActionResult>
   updateUserAccountStatus: (id: string, status: AccountStatus) => Promise<ActionResult>
+  addBatch: (batch: ApplicationBatch) => Promise<ActionResult>
+  updateBatch: (batch: ApplicationBatch) => Promise<ActionResult>
+  deleteBatch: (id: string) => Promise<ActionResult>
   addCategory: (category: BonusCategory) => Promise<ActionResult>
   updateCategory: (category: BonusCategory) => Promise<ActionResult>
   deleteCategory: (id: string) => Promise<ActionResult>
@@ -80,6 +86,7 @@ const emptySettings: SystemSettings = {
 
 const emptyData: StoredData = {
   students: [],
+  batches: [],
   categories: [],
   applications: [],
   settings: emptySettings,
@@ -165,6 +172,7 @@ const fallbackResult = (error: unknown): ActionResult => ({
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [students, setStudents] = useState<StudentProfile[]>(emptyData.students)
+  const [batches, setBatches] = useState<ApplicationBatch[]>(emptyData.batches)
   const [categories, setCategories] = useState<BonusCategory[]>(emptyData.categories)
   const [applications, setApplications] = useState<BonusApplication[]>(emptyData.applications)
   const [settings, setSettings] = useState<SystemSettings>(emptyData.settings)
@@ -174,6 +182,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const applyState = useCallback((state?: StoredData | null) => {
     if (!state) return
     setStudents(state.students || [])
+    setBatches(state.batches || [])
     setCategories(state.categories || [])
     setApplications(state.applications || [])
     setSettings(state.settings || emptySettings)
@@ -300,6 +309,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     body: JSON.stringify({ status }),
   }), [runMutation])
 
+  const addBatch = useCallback((batch: ApplicationBatch) => runMutation('/api/batches', {
+    method: 'POST',
+    body: JSON.stringify({ batch }),
+  }), [runMutation])
+
+  const updateBatch = useCallback((batch: ApplicationBatch) => runMutation(`/api/batches/${batch.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ batch }),
+  }), [runMutation])
+
+  const deleteBatch = useCallback((id: string) => runMutation(`/api/batches/${id}`, {
+    method: 'DELETE',
+  }), [runMutation])
+
   const addCategory = useCallback((category: BonusCategory) => runMutation('/api/categories', {
     method: 'POST',
     body: JSON.stringify({ category }),
@@ -366,6 +389,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: AppState = {
     students,
+    batches,
     categories,
     applications,
     settings,
@@ -382,6 +406,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     importStudents,
     resetUserPassword,
     updateUserAccountStatus,
+    addBatch,
+    updateBatch,
+    deleteBatch,
     addCategory,
     updateCategory,
     deleteCategory,

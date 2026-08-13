@@ -49,6 +49,7 @@ const readImageFile = (file: File): Promise<MaterialAttachment> => new Promise((
 export default function StudentPortal() {
   const {
     applications,
+    batches,
     categories,
     currentUser,
     addApplication,
@@ -59,11 +60,15 @@ export default function StudentPortal() {
     settings,
   } = useStore()
   const student = currentUser?.studentId ? getStudentByStudentId(currentUser.studentId) : undefined
+  const activeBatches = batches.filter(batch => batch.active)
   const activeCategories = categories.filter(category => category.active)
+  const firstActiveBatch = activeBatches[0]
+  const firstActiveCategory = activeCategories[0]
+  const [batchId, setBatchId] = useState(activeBatches[0]?.id ?? '')
   const [categoryId, setCategoryId] = useState(activeCategories[0]?.id ?? '')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [requestedScore, setRequestedScore] = useState(activeCategories[0]?.defaultScore ?? 0)
+  const [requestedScore, setRequestedScore] = useState<number | null>(null)
   const [attachments, setAttachments] = useState<MaterialAttachment[]>([])
   const [message, setMessage] = useState('')
   const [preview, setPreview] = useState<MaterialAttachment | null>(null)
@@ -79,7 +84,11 @@ export default function StudentPortal() {
   const ranking = currentUser?.studentId ? getStudentRanking(currentUser.studentId) : undefined
   const pendingCount = myApplications.filter(application => application.status === 'pending').length
   const approvedCount = myApplications.filter(application => application.status === 'approved').length
-  const selectedCategory = getCategoryById(categoryId)
+  const effectiveBatchId = activeBatches.some(batch => batch.id === batchId) ? batchId : firstActiveBatch?.id ?? ''
+  const effectiveCategoryId = activeCategories.some(category => category.id === categoryId) ? categoryId : firstActiveCategory?.id ?? ''
+  const selectedCategory = getCategoryById(effectiveCategoryId)
+  const selectedBatch = activeBatches.find(batch => batch.id === effectiveBatchId)
+  const effectiveRequestedScore = requestedScore ?? selectedCategory?.defaultScore ?? 0
 
   const handleCategoryChange = (nextCategoryId: string) => {
     const nextCategory = getCategoryById(nextCategoryId)
@@ -120,8 +129,8 @@ export default function StudentPortal() {
       setMessage('没有找到当前用户档案')
       return
     }
-    if (!categoryId || !title.trim()) {
-      setMessage('请补全加分类型和项目名称')
+    if (!effectiveBatchId || !effectiveCategoryId || !title.trim()) {
+      setMessage('请补全申报批次、加分类型和项目名称')
       return
     }
     if (!attachments.length) {
@@ -132,10 +141,11 @@ export default function StudentPortal() {
     setSubmitting(true)
     const result = await addApplication({
       studentId: student.studentId,
-      categoryId,
+      batchId: effectiveBatchId,
+      categoryId: effectiveCategoryId,
       title: title.trim(),
       description: description.trim(),
-      requestedScore,
+      requestedScore: effectiveRequestedScore,
       attachments,
     })
     setSubmitting(false)
@@ -146,7 +156,7 @@ export default function StudentPortal() {
     setTitle('')
     setDescription('')
     setAttachments([])
-    setRequestedScore(selectedCategory?.defaultScore ?? 0)
+    setRequestedScore(null)
     setMessage('申报已提交，等待审核')
   }
 
@@ -187,10 +197,34 @@ export default function StudentPortal() {
         <form onSubmit={handleSubmit} className="ds-panel p-5 h-fit">
           <h2 className="font-bold text-slate-900 mb-4">新增申报</h2>
           <div className="space-y-4">
+            {activeBatches.length === 0 ? (
+              <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                当前暂无启用的申报批次，请联系审核端管理员添加或启用批次。
+              </div>
+            ) : (
+              <label className="block">
+                <span className="block text-sm font-medium text-slate-700 mb-1">申报批次</span>
+                <select
+                  value={effectiveBatchId}
+                  onChange={event => setBatchId(event.target.value)}
+                  className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {activeBatches.map(batch => (
+                    <option key={batch.id} value={batch.id}>{batch.name}</option>
+                  ))}
+                </select>
+                {selectedBatch && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    {selectedBatch.startDate || '未设开始'} 至 {selectedBatch.endDate || '未设结束'} · {selectedBatch.description || '暂无批次说明'}
+                  </p>
+                )}
+              </label>
+            )}
+
             <label className="block">
               <span className="block text-sm font-medium text-slate-700 mb-1">加分类型</span>
               <select
-                value={categoryId}
+                value={effectiveCategoryId}
                 onChange={event => handleCategoryChange(event.target.value)}
                 className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
@@ -199,6 +233,16 @@ export default function StudentPortal() {
                 ))}
               </select>
             </label>
+
+            <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-900">加分项说明</p>
+                <span className="text-xs text-blue-700">默认 {selectedCategory?.defaultScore ?? 0} 分 / 上限 {selectedCategory?.maxScore ?? 0} 分</span>
+              </div>
+              <p className="text-xs text-slate-600 leading-5 mt-2">
+                {selectedCategory?.description || '管理员暂未填写说明，请按实际证明材料填写申报内容。'}
+              </p>
+            </div>
 
             <label className="block">
               <span className="block text-sm font-medium text-slate-700 mb-1">项目名称</span>
@@ -218,7 +262,7 @@ export default function StudentPortal() {
                   min="0"
                   step="0.5"
                   max={selectedCategory?.maxScore}
-                  value={requestedScore}
+                  value={effectiveRequestedScore}
                   onChange={event => setRequestedScore(Number(event.target.value))}
                   className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
@@ -280,7 +324,7 @@ export default function StudentPortal() {
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting}
+              disabled={submitting || activeBatches.length === 0}
             >
               <Send className="w-4 h-4" />
               {submitting ? '提交中...' : '提交审核'}
@@ -299,6 +343,7 @@ export default function StudentPortal() {
                 <ApplicationItem
                   key={application.id}
                   application={application}
+                  batchName={batches.find(batch => batch.id === application.batchId)?.name ?? '默认批次'}
                   categoryName={getCategoryById(application.categoryId)?.name ?? '未知类型'}
                   onPreview={setPreview}
                   onDelete={deleteApplication}
@@ -330,11 +375,13 @@ export default function StudentPortal() {
 
 function ApplicationItem({
   application,
+  batchName,
   categoryName,
   onPreview,
   onDelete,
 }: {
   application: BonusApplication
+  batchName: string
   categoryName: string
   onPreview: (file: MaterialAttachment) => void
   onDelete: (id: string) => void
@@ -350,7 +397,7 @@ function ApplicationItem({
             <Badge tone={statusTones[application.status]}>{statusLabels[application.status]}</Badge>
             <Badge>{application.applicationNo}</Badge>
           </div>
-          <p className="text-sm text-slate-500 mt-1">{categoryName} · 申请 {application.requestedScore} 分</p>
+          <p className="text-sm text-slate-500 mt-1">{batchName} · {categoryName} · 申请 {application.requestedScore} 分</p>
           {application.description && <p className="text-sm text-slate-600 mt-3 leading-6">{application.description}</p>}
           {application.reviewComment && (
             <p className="text-sm text-slate-600 mt-3 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
