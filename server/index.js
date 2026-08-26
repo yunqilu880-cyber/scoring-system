@@ -56,7 +56,7 @@ const makeInviteCode = () => {
   return `SR-${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`
 }
 
-const roundScore = value => Math.round(value * 10) / 10
+const roundScore = value => Math.round(value * 100) / 100
 const clampScore = (value, max) => Math.max(0, Math.min(Number.isFinite(value) ? value : 0, max))
 
 const makeApplicationNo = store => {
@@ -69,36 +69,235 @@ const makeApplicationNo = store => {
 }
 
 const seedStudents = [
-  ['stu-1', '张三', '2021001', '第一项目组', '运营支持', 'A批次', 93, 94, 88, 82, 0, false, 120, 'inactive', true],
-  ['stu-2', '李四', '2021002', '第一项目组', '技术支持', 'A批次', 89, 91, 92, 85, 0, false, 86, 'active', false],
-  ['stu-3', '王五', '2021003', '第二项目组', '数据分析', 'A批次', 91, 92, 76, 90, 1, false, 64, 'active', false],
-  ['stu-4', '赵六', '2021004', '第一项目组', '运营支持', 'A批次', 84, 85, 90, 78, 0, true, 100, 'inactive', true],
-  ['stu-5', '钱七', '2022001', '第二项目组', '智能应用', 'B批次', 96, 98, 95, 88, 0, false, 150, 'active', false],
-  ['stu-6', '孙八', '2022002', '第二项目组', '数据分析', 'B批次', 83, 88, 82, 75, 0, false, 45, 'locked', true],
+  ['stu-1', '张老师', 'JS2026001', '石马镇中心小学', '语文', '中级首聘', 0, 0, 0, 0, 0, false, 0, 'inactive', true],
+  ['stu-2', '李老师', 'JS2026002', '石马镇中心小学', '数学', '高级首聘', 0, 0, 0, 0, 0, false, 0, 'active', false],
+  ['stu-3', '王老师', 'JS2026003', '石马镇第二小学', '英语', '层级内晋升', 0, 0, 0, 0, 1, false, 0, 'active', false],
+  ['stu-4', '陈老师', 'JS2026004', '石马镇第三小学', '道德与法治', '中级首聘', 0, 0, 0, 0, 0, true, 0, 'inactive', true],
+  ['stu-5', '刘老师', 'JS2026005', '石马镇中心小学', '体育', '高级首聘', 0, 0, 0, 0, 0, false, 0, 'active', false],
+  ['stu-6', '赵老师', 'JS2026006', '石马镇第二小学', '科学', '层级内晋升', 0, 0, 0, 0, 0, false, 0, 'locked', true],
 ]
 
 const seedCategories = [
-  { id: 'cat-competition', name: '竞赛与评比成果', defaultScore: 6, maxScore: 10, description: '竞赛、评比、评选活动中取得的成果证明。', active: true },
-  { id: 'cat-research', name: '项目与成果证明', defaultScore: 8, maxScore: 12, description: '项目结项、成果发布、专利软著等证明材料。', active: true },
-  { id: 'cat-volunteer', name: '服务与贡献记录', defaultScore: 3, maxScore: 6, description: '服务时长、活动贡献、协作支持等证明材料。', active: true },
-  { id: 'cat-honor', name: '荣誉与表彰', defaultScore: 4, maxScore: 8, description: '个人荣誉、团队表彰、优秀成员等证明。', active: true },
+  {
+    id: 'score-work-years',
+    group: '资历条件',
+    name: '工作年限',
+    defaultScore: 0,
+    maxScore: 20,
+    order: 1,
+    description: '教龄每年 0.5 分，工龄每年 0.4 分，教龄和工龄不重复计算，本项最高 20 分。',
+    requiredMaterials: '人事档案、任教经历证明、参加工作时间证明等。',
+    active: true,
+  },
+  {
+    id: 'score-education',
+    group: '资历条件',
+    name: '学历',
+    defaultScore: 0,
+    maxScore: 5,
+    order: 2,
+    description: '本科及以上 5 分，专科 4 分，中师或中专 3 分；取得学历但未取得相应层次教师资格证计 2 分。',
+    requiredMaterials: '毕业证、学位证、教师资格证或学信网证明。',
+    active: true,
+  },
+  {
+    id: 'score-assessment',
+    group: '资历条件',
+    name: '年度、师德考核',
+    defaultScore: 0,
+    maxScore: 6,
+    order: 3,
+    description: '近三年年度考核、师德考核优秀各 1 分/次，合格各 0.9 分/次；任一项合格以下不得参评。',
+    requiredMaterials: '近三年年度考核和师德考核结果证明。',
+    active: true,
+  },
+  {
+    id: 'score-professional-post',
+    group: '资历条件',
+    name: '专业技术职务',
+    defaultScore: 0,
+    maxScore: 12,
+    order: 4,
+    description: '按下一层级或同层级下一职级的任职资格、聘任职务年限分别计 0.5 分/年。',
+    requiredMaterials: '任职资格证、聘任文件、岗位聘用材料。',
+    active: true,
+  },
+  {
+    id: 'score-duty',
+    group: '任职履历',
+    name: '任职',
+    defaultScore: 0,
+    maxScore: 3,
+    order: 5,
+    description: '近三年任职按岗位计分，校长书记 1 分/学年，副校长副书记 0.8，中层正职 0.6，副职 0.5，其他岗位按细则计分，兼任其他职务减半累计。',
+    requiredMaterials: '学校任职文件、聘任通知或岗位工作证明。',
+    active: true,
+  },
+  {
+    id: 'score-honor-comprehensive',
+    group: '奖励成果',
+    name: '奖励：综合奖',
+    defaultScore: 0,
+    maxScore: 3,
+    order: 6,
+    description: '国家 3 分，省 2 分，市 1.5 分，县 1 分，乡镇 0.5 分，校级 0.3 分；不同年度可累计。',
+    requiredMaterials: '综合荣誉证书、表彰文件或主管部门公示材料。',
+    active: true,
+  },
+  {
+    id: 'score-honor-single',
+    group: '奖励成果',
+    name: '奖励：单项奖',
+    defaultScore: 0,
+    maxScore: 3,
+    order: 7,
+    description: '一类单项奖按同级综合奖 1/2 计分，二类单项奖按 1/4 计分；同类别多次多项只计最高。',
+    requiredMaterials: '单项获奖证书、推荐或组织文件。',
+    active: true,
+  },
+  {
+    id: 'score-business-competition',
+    group: '奖励成果',
+    name: '个人业务竞赛',
+    defaultScore: 0,
+    maxScore: 4,
+    order: 8,
+    description: '优质课、教学能力竞赛等按国家、省、市、县、片区、校级及一二三等奖计分；同一次逐级选拔只计最高。',
+    requiredMaterials: '竞赛获奖证书、获奖文件、活动通知或学校推荐材料。',
+    active: true,
+  },
+  {
+    id: 'score-guidance',
+    group: '奖励成果',
+    name: '指导获奖',
+    defaultScore: 0,
+    maxScore: 2,
+    order: 9,
+    description: '指导学生学科竞赛、其他竞赛或体育竞赛获奖按级别和等次计分；多人指导按平均分认定。',
+    requiredMaterials: '指导教师获奖证书、竞赛结果文件、学生获奖证明。',
+    active: true,
+  },
+  {
+    id: 'score-paper-published',
+    group: '教科研成果',
+    name: '论文发表',
+    defaultScore: 0,
+    maxScore: 1,
+    order: 10,
+    description: '省级及以上 1 分，市级 0.4 分；正规 CN/ISSN 期刊需可在知网、万方或维普检索，多人合作按作者排序折算。',
+    requiredMaterials: '论文刊物封面目录正文、检索页截图、作者信息页。',
+    active: true,
+  },
+  {
+    id: 'score-paper-award',
+    group: '教科研成果',
+    name: '论文获奖',
+    defaultScore: 0,
+    maxScore: 1,
+    order: 11,
+    description: '国家一二三等奖 1/0.8/0.5 分，省 0.8/0.6/0.5 分，市 0.5/0.4/0.3 分，县 0.3/0.2/0.1 分。',
+    requiredMaterials: '论文获奖证书、评审单位通知或主管部门文件。',
+    active: true,
+  },
+  {
+    id: 'score-news',
+    group: '教科研成果',
+    name: '新闻报道',
+    defaultScore: 0,
+    maxScore: 1,
+    order: 12,
+    description: '国家 1 分，省 0.5 分，市 0.3 分，县 0.2 分；同一内容按最高级别计分。',
+    requiredMaterials: '报道链接、截图、刊发平台证明或采用证明。',
+    active: true,
+  },
+  {
+    id: 'score-research-topic',
+    group: '教科研成果',
+    name: '课题研究',
+    defaultScore: 0,
+    maxScore: 2,
+    order: 13,
+    description: '结题国家 2 分，省 1.5 分，市 1 分；立项当年按同级 1/3 计分，主持人和参与人按细则比例折算。',
+    requiredMaterials: '课题立项书、结题证书、成员名单或主管部门文件。',
+    active: true,
+  },
+  {
+    id: 'score-attendance',
+    group: '日常履职',
+    name: '出勤',
+    defaultScore: 0,
+    maxScore: 6,
+    order: 14,
+    description: '满勤 6 分；事假超过 12 天每日扣 0.1 分，病假超过 18 天每日扣 0.05 分，旷会、旷课、旷工按细则扣分。',
+    requiredMaterials: '学校考勤统计、请假审批记录或相关说明。',
+    active: true,
+  },
+  {
+    id: 'score-workload',
+    group: '日常履职',
+    name: '工作量',
+    defaultScore: 0,
+    maxScore: 10,
+    order: 15,
+    description: '满工作量 8 分；每学期超 1 课时加 0.5 分，最高 10 分；少 1 课时扣 0.5 分，行政人员按细则折算。',
+    requiredMaterials: '课表、工作量统计表、岗位分工或任课证明。',
+    active: true,
+  },
+  {
+    id: 'score-teaching-process',
+    group: '教学质量',
+    name: '教育教学工作过程',
+    defaultScore: 0,
+    maxScore: 3,
+    order: 16,
+    description: '常规工作满分 3 分，依据教案、听课、监考、检查通报、工作完成情况等加减分。',
+    requiredMaterials: '常规检查结果、听课记录、通报表扬或批评材料。',
+    active: true,
+  },
+  {
+    id: 'score-teaching-effect',
+    group: '教学质量',
+    name: '教学效果',
+    defaultScore: 0,
+    maxScore: 18,
+    order: 17,
+    description: '教学成绩、毕业班、接班提升、教学示范、工作成果等按细则汇总，本项最高 18 分。',
+    requiredMaterials: '质量分析表、成绩排名证明、示范课材料、成果证明。',
+    active: true,
+  },
 ]
 
 const seedBatches = [
   {
-    id: 'batch-main',
-    name: '默认申报批次',
-    startDate: '2026-07-01',
+    id: 'batch-teacher-2026',
+    name: '2026 专业技术岗位竞聘',
+    startDate: '2026-08-01',
     endDate: '2026-08-31',
-    description: '用于当前评分周期的综合加分项申报。',
+    description: '用于本轮专业技术岗位竞聘，申报人按 17 个评分项目提交自评分和证明材料。',
     active: true,
   },
   {
-    id: 'batch-scholarship',
-    name: '专项奖学金申报',
-    startDate: '2026-03-01',
-    endDate: '2026-03-31',
-    description: '用于专项奖学金相关证明材料申报，可按实际时间启用。',
+    id: 'batch-middle-first',
+    name: '中级首聘',
+    startDate: '',
+    endDate: '',
+    description: '中级岗位首次聘任申报入口，可按实际通知时间启用。',
+    active: false,
+  },
+  {
+    id: 'batch-senior-first',
+    name: '高级首聘',
+    startDate: '',
+    endDate: '',
+    description: '高级岗位首次聘任申报入口，可按实际通知时间启用。',
+    active: false,
+  },
+  {
+    id: 'batch-internal-level',
+    name: '层级内晋升',
+    startDate: '',
+    endDate: '',
+    description: '同层级内岗位晋升申报入口，可按实际通知时间启用。',
     active: false,
   },
 ]
@@ -107,65 +306,196 @@ const seedApplications = [
   {
     id: 'app-1',
     applicationNo: 'SQ-2026-0001',
-    studentId: '2021001',
-    batchId: 'batch-main',
-    categoryId: 'cat-competition',
-    title: '年度技能评比二等奖',
-    description: '参加年度技能评比，获得二等奖。',
-    requestedScore: 6,
-    approvedScore: 6,
+    studentId: 'JS2026001',
+    batchId: 'batch-teacher-2026',
+    categoryId: 'score-work-years',
+    title: '教龄与工龄认定',
+    description: '1998 年参加工作，申请按教龄年限认定工作年限分。',
+    requestedScore: 14,
+    approvedScore: 14,
     status: 'approved',
     attachments: [],
     reviewLogs: [
-      { id: 'log-app-1-submit', action: 'submitted', actorName: '张三', comment: '提交申报材料', score: 6, createdAt: '2026-07-20T09:30:00.000Z' },
-      { id: 'log-app-1-review', action: 'approved', actorName: '审核管理员', comment: '证书信息完整，按规则认定。', score: 6, createdAt: '2026-07-21T15:10:00.000Z' },
+      { id: 'log-app-1-submit', action: 'submitted', actorName: '张老师', comment: '提交申报材料', score: 14, createdAt: '2026-08-20T09:30:00.000Z' },
+      { id: 'log-app-1-review', action: 'approved', actorName: '审核管理员', comment: '人事档案时间可核验，按 14 分认定。', score: 14, createdAt: '2026-08-21T15:10:00.000Z' },
     ],
-    submittedAt: '2026-07-20T09:30:00.000Z',
-    reviewedAt: '2026-07-21T15:10:00.000Z',
+    submittedAt: '2026-08-20T09:30:00.000Z',
+    reviewedAt: '2026-08-21T15:10:00.000Z',
     reviewerName: '审核管理员',
-    reviewComment: '证书信息完整，按规则认定。',
+    reviewComment: '人事档案时间可核验，按 14 分认定。',
   },
   {
     id: 'app-2',
     applicationNo: 'SQ-2026-0002',
-    studentId: '2022001',
-    batchId: 'batch-main',
-    categoryId: 'cat-research',
-    title: '重点项目结项优秀',
-    description: '参与重点项目并完成结项，验收结果优秀。',
-    requestedScore: 8,
-    approvedScore: 8,
+    studentId: 'JS2026002',
+    batchId: 'batch-teacher-2026',
+    categoryId: 'score-education',
+    title: '本科学历及教师资格证',
+    description: '提交本科毕业证和相应层次教师资格证。',
+    requestedScore: 5,
+    approvedScore: 5,
     status: 'approved',
     attachments: [],
     reviewLogs: [
-      { id: 'log-app-2-submit', action: 'submitted', actorName: '钱七', comment: '提交申报材料', score: 8, createdAt: '2026-07-22T11:00:00.000Z' },
-      { id: 'log-app-2-review', action: 'approved', actorName: '审核管理员', comment: '材料有效。', score: 8, createdAt: '2026-07-23T10:20:00.000Z' },
+      { id: 'log-app-2-submit', action: 'submitted', actorName: '李老师', comment: '提交申报材料', score: 5, createdAt: '2026-08-22T11:00:00.000Z' },
+      { id: 'log-app-2-review', action: 'approved', actorName: '审核管理员', comment: '学历与教师资格证一致，认定 5 分。', score: 5, createdAt: '2026-08-23T10:20:00.000Z' },
     ],
-    submittedAt: '2026-07-22T11:00:00.000Z',
-    reviewedAt: '2026-07-23T10:20:00.000Z',
+    submittedAt: '2026-08-22T11:00:00.000Z',
+    reviewedAt: '2026-08-23T10:20:00.000Z',
     reviewerName: '审核管理员',
-    reviewComment: '材料有效。',
+    reviewComment: '学历与教师资格证一致，认定 5 分。',
   },
   {
     id: 'app-3',
     applicationNo: 'SQ-2026-0003',
-    studentId: '2021002',
-    batchId: 'batch-main',
-    categoryId: 'cat-volunteer',
-    title: '专项服务支持',
-    description: '累计参与专项服务支持 42 小时。',
-    requestedScore: 3,
+    studentId: 'JS2026002',
+    batchId: 'batch-teacher-2026',
+    categoryId: 'score-honor-comprehensive',
+    title: '县级优秀教师',
+    description: '2025 年获得县级优秀教师，申请综合奖计分。',
+    requestedScore: 1,
     approvedScore: 0,
     status: 'pending',
     attachments: [],
     reviewLogs: [
-      { id: 'log-app-3-submit', action: 'submitted', actorName: '李四', comment: '提交申报材料', score: 3, createdAt: '2026-07-24T13:45:00.000Z' },
+      { id: 'log-app-3-submit', action: 'submitted', actorName: '李老师', comment: '提交申报材料', score: 1, createdAt: '2026-08-24T13:45:00.000Z' },
     ],
-    submittedAt: '2026-07-24T13:45:00.000Z',
+    submittedAt: '2026-08-24T13:45:00.000Z',
+  },
+  {
+    id: 'app-4',
+    applicationNo: 'SQ-2026-0004',
+    studentId: 'JS2026005',
+    batchId: 'batch-teacher-2026',
+    categoryId: 'score-guidance',
+    title: '指导学生体育竞赛获奖',
+    description: '指导学生在县级运动会获得名次，申请指导获奖加分。',
+    requestedScore: 0.75,
+    approvedScore: 0,
+    status: 'pending',
+    attachments: [],
+    reviewLogs: [
+      { id: 'log-app-4-submit', action: 'submitted', actorName: '刘老师', comment: '提交申报材料', score: 0.75, createdAt: '2026-08-25T09:20:00.000Z' },
+    ],
+    submittedAt: '2026-08-25T09:20:00.000Z',
+  },
+  {
+    id: 'app-5',
+    applicationNo: 'SQ-2026-0005',
+    studentId: 'JS2026003',
+    batchId: 'batch-teacher-2026',
+    categoryId: 'score-paper-award',
+    title: '论文获奖材料',
+    description: '提交论文获奖证书截图，待复核是否属于主管部门组织。',
+    requestedScore: 0.5,
+    approvedScore: 0,
+    status: 'rejected',
+    attachments: [],
+    reviewLogs: [
+      { id: 'log-app-5-submit', action: 'submitted', actorName: '王老师', comment: '提交申报材料', score: 0.5, createdAt: '2026-08-20T14:12:00.000Z' },
+      { id: 'log-app-5-review', action: 'rejected', actorName: '审核管理员', comment: '暂未看到主管部门组织证明，需补充后重新提交。', score: 0, createdAt: '2026-08-21T09:35:00.000Z' },
+    ],
+    submittedAt: '2026-08-20T14:12:00.000Z',
+    reviewedAt: '2026-08-21T09:35:00.000Z',
+    reviewerName: '审核管理员',
+    reviewComment: '暂未看到主管部门组织证明，需补充后重新提交。',
   },
 ]
 
 const cloneJson = value => JSON.parse(JSON.stringify(value))
+
+const defaultSettings = () => ({
+  academicYear: '2026 专业技术岗位竞聘',
+  submissionDeadline: '2026-08-31',
+  scoringMode: 'teacherCompetition',
+  weights: {
+    academic: 0,
+    moral: 0,
+    practice: 0,
+    sports: 0,
+    bonusCap: 100,
+  },
+})
+
+const normalizeSettings = settings => {
+  const mode = settings?.scoringMode === 'bonus' ? 'bonus' : 'teacherCompetition'
+  const sourceWeights = settings?.weights || {}
+  const legacySettings = !settings?.scoringMode
+  const teacherTotalCap = legacySettings ? 100 : Number(sourceWeights.bonusCap) || 100
+  return {
+    academicYear: String(settings?.academicYear || '2026 专业技术岗位竞聘'),
+    submissionDeadline: String(settings?.submissionDeadline || '2026-08-31'),
+    scoringMode: mode,
+    weights: {
+      academic: Number(sourceWeights.academic) || 0,
+      moral: Number(sourceWeights.moral) || 0,
+      practice: Number(sourceWeights.practice) || 0,
+      sports: Number(sourceWeights.sports) || 0,
+      bonusCap: mode === 'teacherCompetition' ? teacherTotalCap : Number(sourceWeights.bonusCap) || 20,
+    },
+  }
+}
+
+const normalizeCategory = (category, index) => ({
+  id: String(category.id || uid('cat')),
+  name: String(category.name || '未命名评分项目'),
+  group: String(category.group || '竞聘评分'),
+  defaultScore: Number(category.defaultScore) || 0,
+  maxScore: Number(category.maxScore) || 0,
+  order: Number.isFinite(Number(category.order)) ? Number(category.order) : index + 1,
+  description: String(category.description || ''),
+  requiredMaterials: String(category.requiredMaterials || ''),
+  active: category.active !== false,
+})
+
+const migrateCategories = sourceCategories => {
+  const sourceList = Array.isArray(sourceCategories) ? sourceCategories : []
+  const teacherIds = new Set(seedCategories.map(category => category.id))
+  const hasTeacherCategories = sourceList.some(category => teacherIds.has(String(category.id || '')))
+  const sourceById = new Map(sourceList.map(category => [String(category.id || ''), category]))
+  const teacherCategories = seedCategories.map((seed, index) => {
+    const existing = sourceById.get(seed.id)
+    return normalizeCategory({ ...seed, ...(existing || {}), id: seed.id }, index)
+  })
+  const legacyCategories = sourceList
+    .filter(category => !teacherIds.has(String(category.id || '')))
+    .map((category, index) => normalizeCategory({
+      ...category,
+      group: category.group || (hasTeacherCategories ? '自定义评分项目' : '旧版加分项目'),
+      active: hasTeacherCategories ? category.active !== false : false,
+      order: seedCategories.length + index + 1,
+    }, seedCategories.length + index))
+  return [...teacherCategories, ...legacyCategories]
+}
+
+const normalizeBatch = (batch, index) => ({
+  id: String(batch.id || uid('batch')),
+  name: String(batch.name || '未命名申报批次'),
+  startDate: String(batch.startDate || ''),
+  endDate: String(batch.endDate || ''),
+  description: String(batch.description || ''),
+  active: batch.active !== false,
+  order: Number.isFinite(Number(batch.order)) ? Number(batch.order) : index + 1,
+})
+
+const migrateBatches = sourceBatches => {
+  const sourceList = Array.isArray(sourceBatches) ? sourceBatches : []
+  const seedIds = new Set(seedBatches.map(batch => batch.id))
+  const hasTeacherBatches = sourceList.some(batch => seedIds.has(String(batch.id || '')))
+  const sourceById = new Map(sourceList.map(batch => [String(batch.id || ''), batch]))
+  const teacherBatches = seedBatches.map((seed, index) => {
+    const existing = sourceById.get(seed.id)
+    return normalizeBatch({ ...seed, ...(existing || {}), id: seed.id }, index)
+  })
+  const legacyBatches = sourceList
+    .filter(batch => !seedIds.has(String(batch.id || '')))
+    .map((batch, index) => normalizeBatch({
+      ...batch,
+      active: hasTeacherBatches ? batch.active !== false : false,
+      order: seedBatches.length + index + 1,
+    }, seedBatches.length + index))
+  return [...teacherBatches, ...legacyBatches]
+}
 
 const createSeedData = async () => ({
   students: await Promise.all(seedStudents.map(async row => {
@@ -195,27 +525,17 @@ const createSeedData = async () => ({
   batches: cloneJson(seedBatches),
   categories: cloneJson(seedCategories),
   applications: cloneJson(seedApplications),
-  settings: {
-    academicYear: '2025-2026 评分周期',
-    submissionDeadline: '2026-08-31',
-    weights: {
-      academic: 60,
-      moral: 15,
-      practice: 15,
-      sports: 10,
-      bonusCap: 20,
-    },
-  },
+  settings: defaultSettings(),
   sessions: [],
 })
 
 const migrateDb = async source => {
   const next = {
     students: Array.isArray(source.students) ? source.students : [],
-    batches: Array.isArray(source.batches) ? source.batches : seedBatches,
-    categories: Array.isArray(source.categories) ? source.categories : seedCategories,
+    batches: migrateBatches(source.batches),
+    categories: migrateCategories(source.categories),
     applications: Array.isArray(source.applications) ? source.applications : [],
-    settings: source.settings || (await createSeedData()).settings,
+    settings: normalizeSettings(source.settings),
     sessions: Array.isArray(source.sessions) ? source.sessions : [],
   }
 
@@ -298,6 +618,78 @@ const calculateBaseScore = student => {
     student.practiceScore * (weights.practice / 100) +
     student.sportsScore * (weights.sports / 100),
   )
+}
+
+const createCategoryScores = (applications, categoryMap, scoreKey) => {
+  const scores = {}
+  applications.forEach(application => {
+    const category = categoryMap.get(application.categoryId)
+    if (!category || category.active === false) return
+    const currentScore = scores[application.categoryId] || 0
+    const nextScore = currentScore + (Number(application[scoreKey]) || 0)
+    scores[application.categoryId] = roundScore(Math.min(nextScore, Number(category.maxScore) || 0))
+  })
+  const total = roundScore(Object.values(scores).reduce((sum, score) => sum + score, 0))
+  return { scores, total }
+}
+
+const createRankingRows = () => {
+  const isTeacherCompetition = db.settings.scoringMode !== 'bonus'
+  const totalCap = Number(db.settings.weights?.bonusCap) || 100
+  const categoryMap = new Map(db.categories.filter(category => category.active !== false).map(category => [category.id, category]))
+
+  const rows = db.students.map(student => {
+    const studentApplications = db.applications.filter(application => application.studentId === student.studentId)
+    const scoreableApplications = isTeacherCompetition
+      ? studentApplications.filter(application => categoryMap.has(application.categoryId))
+      : studentApplications
+    const approvedApplications = scoreableApplications.filter(application => application.status === 'approved')
+    const submittedApplications = scoreableApplications.filter(application => application.status !== 'rejected')
+    const approvedCategoryScores = createCategoryScores(approvedApplications, categoryMap, 'approvedScore')
+    const requestedCategoryScores = createCategoryScores(submittedApplications, categoryMap, 'requestedScore')
+    const baseScore = isTeacherCompetition ? 0 : calculateBaseScore(student)
+    const bonusScore = isTeacherCompetition
+      ? roundScore(Math.min(approvedCategoryScores.total, totalCap))
+      : roundScore(Math.min(approvedApplications.reduce((sum, application) => sum + application.approvedScore, 0), totalCap))
+    const selfScore = isTeacherCompetition
+      ? roundScore(Math.min(requestedCategoryScores.total, totalCap))
+      : roundScore(Math.min(submittedApplications.reduce((sum, application) => sum + application.requestedScore, 0), totalCap))
+    const warnings = []
+    if (student.failedCourses > 0) warnings.push(`限制项 ${student.failedCourses} 个`)
+    if (student.hasPunishment) warnings.push('存在参评限制记录')
+
+    return {
+      studentId: student.studentId,
+      studentName: student.name,
+      department: student.department,
+      major: student.major,
+      grade: student.grade,
+      baseScore,
+      bonusScore,
+      selfScore,
+      totalScore: roundScore(baseScore + bonusScore),
+      rank: 0,
+      categoryScores: approvedCategoryScores.scores,
+      categorySelfScores: requestedCategoryScores.scores,
+      approvedApplications,
+      warnings,
+    }
+  }).sort((a, b) => (
+    b.totalScore - a.totalScore ||
+    b.selfScore - a.selfScore ||
+    b.baseScore - a.baseScore ||
+    a.studentId.localeCompare(b.studentId)
+  ))
+
+  let lastScore = null
+  let lastRank = 0
+  return rows.map((row, index) => {
+    if (lastScore === null || row.totalScore < lastScore) {
+      lastRank = index + 1
+      lastScore = row.totalScore
+    }
+    return { ...row, rank: lastRank }
+  })
 }
 
 const getCurrentUser = req => {
@@ -752,25 +1144,35 @@ app.delete('/api/batches/:id', requireAuth, requireAdmin, async (req, res) => {
 })
 
 app.post('/api/categories', requireAuth, requireAdmin, async (req, res) => {
-  db.categories.push({ ...req.body?.category, id: req.body?.category?.id || uid('cat') })
+  db.categories.push(normalizeCategory({ ...req.body?.category, id: req.body?.category?.id || uid('cat') }, db.categories.length))
   await saveDb()
-  apiOk(req, res, '加分类型已新增')
+  apiOk(req, res, '评分项目已新增')
 })
 
 app.put('/api/categories/:id', requireAuth, requireAdmin, async (req, res) => {
-  db.categories = db.categories.map(category => category.id === req.params.id ? { ...req.body?.category, id: req.params.id } : category)
+  db.categories = db.categories.map((category, index) => (
+    category.id === req.params.id
+      ? normalizeCategory({ ...category, ...req.body?.category, id: req.params.id }, index)
+      : category
+  ))
   await saveDb()
-  apiOk(req, res, '加分类型已保存')
+  apiOk(req, res, '评分项目已保存')
 })
 
 app.delete('/api/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+  if (db.applications.some(application => application.categoryId === req.params.id)) {
+    db.categories = db.categories.map(category => category.id === req.params.id ? { ...category, active: false } : category)
+    await saveDb()
+    apiOk(req, res, '该评分项目已有申报记录，已自动停用')
+    return
+  }
   db.categories = db.categories.filter(category => category.id !== req.params.id)
   await saveDb()
-  apiOk(req, res, '加分类型已删除')
+  apiOk(req, res, '评分项目已删除')
 })
 
 app.put('/api/settings', requireAuth, requireAdmin, async (req, res) => {
-  db.settings = req.body?.settings
+  db.settings = normalizeSettings(req.body?.settings)
   await saveDb()
   apiOk(req, res, '评分规则已保存')
 })
@@ -790,7 +1192,7 @@ app.post('/api/applications', requireAuth, async (req, res) => {
   const batch = activeBatches.find(item => item.id === input.batchId) || activeBatches[0]
   const category = db.categories.find(item => item.id === input.categoryId && item.active)
   if (!student || !category || !batch) {
-    res.status(400).json({ ok: false, message: '用户、申报批次或加分类型不存在' })
+    res.status(400).json({ ok: false, message: '用户、申报批次或评分项目不存在' })
     return
   }
   const requestedScore = clampScore(Number(input.requestedScore), category.maxScore)
@@ -818,7 +1220,7 @@ app.post('/api/applications', requireAuth, async (req, res) => {
   }
   db.applications.unshift(application)
   await saveDb()
-  apiOk(req, res, '申报已提交，等待审核')
+  apiOk(req, res, '申报已提交，等待复评')
 })
 
 app.delete('/api/applications/:id', requireAuth, async (req, res) => {
@@ -858,7 +1260,7 @@ app.post('/api/applications/:id/review', requireAuth, requireAdmin, async (req, 
   application.reviewComment = comment
   application.reviewLogs = [
     ...application.reviewLogs,
-    { id: uid('log'), action: status, actorName: req.currentUser.name, comment: comment || (status === 'approved' ? '审核通过' : '审核驳回'), score: approvedScore, createdAt: time },
+    { id: uid('log'), action: status, actorName: req.currentUser.name, comment: comment || (status === 'approved' ? '复评通过' : '复评驳回'), score: approvedScore, createdAt: time },
   ]
   await saveDb()
   apiOk(req, res, status === 'approved' ? '申报已通过' : '申报已驳回')
@@ -903,36 +1305,7 @@ app.post('/api/reset-demo', requireAuth, requireAdmin, async (req, res) => {
 })
 
 app.get('/api/rankings', requireAuth, (req, res) => {
-  const rows = db.students.map(student => {
-    const approvedApplications = db.applications.filter(application => application.studentId === student.studentId && application.status === 'approved')
-    const bonusScore = roundScore(Math.min(approvedApplications.reduce((sum, application) => sum + application.approvedScore, 0), db.settings.weights.bonusCap))
-    const baseScore = calculateBaseScore(student)
-    const warnings = []
-    if (student.failedCourses > 0) warnings.push(`异常项 ${student.failedCourses} 个`)
-    if (student.hasPunishment) warnings.push('存在限制记录')
-    return {
-      studentId: student.studentId,
-      studentName: student.name,
-      department: student.department,
-      major: student.major,
-      grade: student.grade,
-      baseScore,
-      bonusScore,
-      totalScore: roundScore(baseScore + bonusScore),
-      rank: 0,
-      approvedApplications,
-      warnings,
-    }
-  }).sort((a, b) => b.totalScore - a.totalScore || b.baseScore - a.baseScore || a.studentId.localeCompare(b.studentId))
-  let lastScore = null
-  let lastRank = 0
-  res.json(rows.map((row, index) => {
-    if (lastScore === null || row.totalScore < lastScore) {
-      lastRank = index + 1
-      lastScore = row.totalScore
-    }
-    return { ...row, rank: lastRank }
-  }))
+  res.json(createRankingRows())
 })
 
 if (existsSync(distDir)) {

@@ -6,7 +6,7 @@ import type { BonusApplication, MaterialAttachment } from '../types'
 import { Badge, Button, EmptyState, PageHeader, Panel, SectionHeader, StatCard } from '../components/ui'
 
 const statusLabels = {
-  pending: '待审核',
+  pending: '待复评',
   approved: '已通过',
   rejected: '已驳回',
 }
@@ -19,8 +19,8 @@ const statusTones = {
 
 const logActionLabels = {
   submitted: '提交',
-  approved: '通过',
-  rejected: '驳回',
+  approved: '复评通过',
+  rejected: '复评驳回',
 }
 
 const formatDate = (value: string) => new Date(value).toLocaleString('zh-CN', {
@@ -29,6 +29,8 @@ const formatDate = (value: string) => new Date(value).toLocaleString('zh-CN', {
   hour: '2-digit',
   minute: '2-digit',
 })
+
+const formatScore = (value: number) => value.toFixed(2)
 
 const readImageFile = (file: File): Promise<MaterialAttachment> => new Promise((resolve, reject) => {
   const reader = new FileReader()
@@ -61,7 +63,10 @@ export default function StudentPortal() {
   } = useStore()
   const student = currentUser?.studentId ? getStudentByStudentId(currentUser.studentId) : undefined
   const activeBatches = batches.filter(batch => batch.active)
-  const activeCategories = categories.filter(category => category.active)
+  const activeCategories = useMemo(() => categories
+    .filter(category => category.active)
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name)), [categories])
+  const scoreableCategoryIds = useMemo(() => new Set(activeCategories.map(category => category.id)), [activeCategories])
   const firstActiveBatch = activeBatches[0]
   const firstActiveCategory = activeCategories[0]
   const [batchId, setBatchId] = useState(activeBatches[0]?.id ?? '')
@@ -77,9 +82,12 @@ export default function StudentPortal() {
 
   const myApplications = useMemo(() => (
     applications
-      .filter(application => application.studentId === currentUser?.studentId)
+      .filter(application => (
+        application.studentId === currentUser?.studentId &&
+        (settings.scoringMode === 'bonus' || scoreableCategoryIds.has(application.categoryId))
+      ))
       .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
-  ), [applications, currentUser?.studentId])
+  ), [applications, currentUser?.studentId, scoreableCategoryIds, settings.scoringMode])
 
   const ranking = currentUser?.studentId ? getStudentRanking(currentUser.studentId) : undefined
   const pendingCount = myApplications.filter(application => application.status === 'pending').length
@@ -130,7 +138,7 @@ export default function StudentPortal() {
       return
     }
     if (!effectiveBatchId || !effectiveCategoryId || !title.trim()) {
-      setMessage('请补全申报批次、加分类型和项目名称')
+      setMessage('请补全申报批次、评分项目和项目名称')
       return
     }
     if (!attachments.length) {
@@ -157,7 +165,7 @@ export default function StudentPortal() {
     setDescription('')
     setAttachments([])
     setRequestedScore(null)
-    setMessage('申报已提交，等待审核')
+    setMessage('申报已提交，等待复评')
   }
 
   if (!student) {
@@ -172,8 +180,8 @@ export default function StudentPortal() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="用户上传加分项"
-        description={`${settings.academicYear} · ${student.department} · ${student.major}`}
+        title="竞聘评分申报"
+        description={`${settings.academicYear} · ${student.department} · ${student.major || '未填写学科/岗位'} · ${student.grade || '未填写竞聘类别'}`}
         actions={
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/80 border border-slate-200 text-sm text-slate-600 shadow-sm">
           <CalendarClock className="w-4 h-4 text-blue-600" />
@@ -184,9 +192,9 @@ export default function StudentPortal() {
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: '基础指标分', value: ranking?.baseScore.toFixed(1) ?? '0.0', tone: 'slate' as const },
-          { label: '已认定加分', value: ranking?.bonusScore.toFixed(1) ?? '0.0', tone: 'emerald' as const },
-          { label: '当前总分', value: ranking?.totalScore.toFixed(1) ?? '0.0', tone: 'cyan' as const },
+          { label: '自评分合计', value: formatScore(ranking?.selfScore ?? 0), tone: 'slate' as const },
+          { label: '复评分合计', value: formatScore(ranking?.bonusScore ?? 0), tone: 'emerald' as const },
+          { label: '待复评项目', value: pendingCount, tone: 'cyan' as const },
           { label: '当前排名', value: ranking ? `第 ${ranking.rank} 名` : '-', tone: 'amber' as const },
         ].map(item => (
           <StatCard key={item.label} label={item.label} value={item.value} tone={item.tone} />
@@ -195,7 +203,7 @@ export default function StudentPortal() {
 
       <div className="grid xl:grid-cols-[420px_1fr] gap-6">
         <form onSubmit={handleSubmit} className="ds-panel p-5 h-fit">
-          <h2 className="font-bold text-slate-900 mb-4">新增申报</h2>
+          <h2 className="font-bold text-slate-900 mb-4">新增评分项目申报</h2>
           <div className="space-y-4">
             {activeBatches.length === 0 ? (
               <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">
@@ -203,7 +211,7 @@ export default function StudentPortal() {
               </div>
             ) : (
               <label className="block">
-                <span className="block text-sm font-medium text-slate-700 mb-1">申报批次</span>
+              <span className="block text-sm font-medium text-slate-700 mb-1">申报批次</span>
                 <select
                   value={effectiveBatchId}
                   onChange={event => setBatchId(event.target.value)}
@@ -222,26 +230,31 @@ export default function StudentPortal() {
             )}
 
             <label className="block">
-              <span className="block text-sm font-medium text-slate-700 mb-1">加分类型</span>
+              <span className="block text-sm font-medium text-slate-700 mb-1">评分项目</span>
               <select
                 value={effectiveCategoryId}
                 onChange={event => handleCategoryChange(event.target.value)}
                 className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 {activeCategories.map(category => (
-                  <option key={category.id} value={category.id}>{category.name}</option>
+                  <option key={category.id} value={category.id}>{category.group ? `${category.group} / ` : ''}{category.name}</option>
                 ))}
               </select>
             </label>
 
             <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-slate-900">加分项说明</p>
-                <span className="text-xs text-blue-700">默认 {selectedCategory?.defaultScore ?? 0} 分 / 上限 {selectedCategory?.maxScore ?? 0} 分</span>
+                <p className="text-sm font-semibold text-slate-900">评分项目细则</p>
+                <span className="text-xs text-blue-700">默认 {selectedCategory?.defaultScore ?? 0} 分 / 满分 {selectedCategory?.maxScore ?? 0} 分</span>
               </div>
               <p className="text-xs text-slate-600 leading-5 mt-2">
                 {selectedCategory?.description || '管理员暂未填写说明，请按实际证明材料填写申报内容。'}
               </p>
+              {selectedCategory?.requiredMaterials && (
+                <p className="text-xs text-blue-700 leading-5 mt-2">
+                  材料要求：{selectedCategory.requiredMaterials}
+                </p>
+              )}
             </div>
 
             <label className="block">
@@ -250,17 +263,17 @@ export default function StudentPortal() {
                 value={title}
                 onChange={event => setTitle(event.target.value)}
                 className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="例如：年度技能评比二等奖"
+                placeholder="例如：县级优秀教师 / 本科学历 / 工作年限认定"
               />
             </label>
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="block text-sm font-medium text-slate-700 mb-1">申请分数</span>
+                <span className="block text-sm font-medium text-slate-700 mb-1">自评分</span>
                 <input
                   type="number"
                   min="0"
-                  step="0.5"
+                  step="0.01"
                   max={selectedCategory?.maxScore}
                   value={effectiveRequestedScore}
                   onChange={event => setRequestedScore(Number(event.target.value))}
@@ -268,7 +281,7 @@ export default function StudentPortal() {
                 />
               </label>
               <div className="rounded-lg bg-blue-50/60 border border-blue-100 p-3">
-                <p className="text-xs text-slate-500">类型上限</p>
+                <p className="text-xs text-slate-500">本项满分</p>
                 <p className="text-lg font-bold text-slate-900">{selectedCategory?.maxScore ?? 0} 分</p>
               </div>
             </div>
@@ -279,7 +292,7 @@ export default function StudentPortal() {
                 value={description}
                 onChange={event => setDescription(event.target.value)}
                 className="w-full min-h-24 px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="填写项目时间、证明单位、关键说明等信息"
+                placeholder="填写取得时间、级别、本人排名、证书编号或其他需要说明的信息"
               />
             </label>
 
@@ -327,13 +340,13 @@ export default function StudentPortal() {
               disabled={submitting || activeBatches.length === 0}
             >
               <Send className="w-4 h-4" />
-              {submitting ? '提交中...' : '提交审核'}
+              {submitting ? '提交中...' : '提交复评'}
             </Button>
           </div>
         </form>
 
         <Panel className="overflow-hidden">
-          <SectionHeader title="申报记录" description={`待审核 ${pendingCount} 项 · 已通过 ${approvedCount} 项`} />
+          <SectionHeader title="申报记录" description={`待复评 ${pendingCount} 项 · 已通过 ${approvedCount} 项`} />
 
           {myApplications.length === 0 ? (
             <EmptyState icon={FileImage} title="暂无申报记录" />
@@ -344,7 +357,7 @@ export default function StudentPortal() {
                   key={application.id}
                   application={application}
                   batchName={batches.find(batch => batch.id === application.batchId)?.name ?? '默认批次'}
-                  categoryName={getCategoryById(application.categoryId)?.name ?? '未知类型'}
+                  categoryName={getCategoryById(application.categoryId)?.name ?? '未知项目'}
                   onPreview={setPreview}
                   onDelete={deleteApplication}
                 />
@@ -397,18 +410,18 @@ function ApplicationItem({
             <Badge tone={statusTones[application.status]}>{statusLabels[application.status]}</Badge>
             <Badge>{application.applicationNo}</Badge>
           </div>
-          <p className="text-sm text-slate-500 mt-1">{batchName} · {categoryName} · 申请 {application.requestedScore} 分</p>
+          <p className="text-sm text-slate-500 mt-1">{batchName} · {categoryName} · 自评 {application.requestedScore} 分</p>
           {application.description && <p className="text-sm text-slate-600 mt-3 leading-6">{application.description}</p>}
           {application.reviewComment && (
             <p className="text-sm text-slate-600 mt-3 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
-              审核意见：{application.reviewComment}
+              复评意见：{application.reviewComment}
             </p>
           )}
           <ReviewTimeline application={application} />
         </div>
         <div className="text-left sm:text-right shrink-0">
           <p className="text-xs text-slate-400">{formatDate(application.submittedAt)}</p>
-          {application.status === 'approved' && <p className="text-lg font-bold text-emerald-600 mt-1">{application.approvedScore} 分</p>}
+          {application.status === 'approved' && <p className="text-lg font-bold text-emerald-600 mt-1">复评 {application.approvedScore} 分</p>}
           {canDelete && (
             <button
               type="button"

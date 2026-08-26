@@ -49,6 +49,7 @@ export interface ScoreWeights {
 export interface SystemSettings {
   academicYear: string
   submissionDeadline: string
+  scoringMode: 'bonus' | 'teacherCompetition'
   weights: ScoreWeights
 }
 
@@ -64,9 +65,12 @@ export interface ApplicationBatch {
 export interface BonusCategory {
   id: string
   name: string
+  group?: string
   defaultScore: number
   maxScore: number
   description: string
+  requiredMaterials?: string
+  order?: number
   active: boolean
 }
 
@@ -115,8 +119,11 @@ export interface RankingResult {
   grade: string
   baseScore: number
   bonusScore: number
+  selfScore: number
   totalScore: number
   rank: number
+  categoryScores: Record<string, number>
+  categorySelfScores: Record<string, number>
   approvedApplications: BonusApplication[]
   warnings: string[]
 }

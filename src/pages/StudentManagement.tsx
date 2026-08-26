@@ -1,11 +1,13 @@
-﻿import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Download, Edit2, FileSpreadsheet, KeyRound, Lock, Plus, Search, Trash2, Unlock, Upload, X } from 'lucide-react'
-import { departments, grades } from '../mockData'
 import { useStore } from '../store'
 import type { StudentProfile } from '../types'
 import { Badge, Button, EmptyState, FilterBar, PageHeader, Panel, StatCard } from '../components/ui'
 import { downloadCsv, parseCsv } from '../utils/csv'
+
+const defaultDepartments = ['石马镇中心小学', '石马镇第二小学', '石马镇第三小学']
+const defaultCompetitionTypes = ['中级首聘', '高级首聘', '层级内晋升']
 
 const emptyStudent: StudentProfile = {
   id: '',
@@ -40,12 +42,14 @@ const accountStatusTones = {
 
 const toText = (value: unknown) => String(value ?? '').trim()
 const toNumber = (value: unknown) => Number.parseFloat(toText(value)) || 0
-const studentImportHeader = ['姓名', '用户编号', '所属单位', '分组/项目', '批次', '基础表现', '综合表现', '贡献表现', '规范记录', '异常项数', '贡献时长', '限制记录']
+const parseBooleanText = (value: unknown) => ['是', '有', 'true', '1', '存在'].includes(toText(value).toLowerCase())
+
+const studentImportHeader = ['姓名', '用户编号', '所属单位', '任教学科/岗位', '竞聘类别', '限制项数', '参评限制记录']
 const studentTemplateRows = [
   studentImportHeader,
-  ['张三', '2026001', '第一项目组', '运营支持', 'A批次', 90, 92, 88, 95, 0, 30, '否'],
-  ['李四', '2026002', '第二项目组', '技术支持', 'A批次', 86, 90, 94, 91, 0, 45, '否'],
-  ['王五', '2026003', '第三项目组', '数据分析', 'B批次', 82, 85, 89, 87, 1, 20, '是'],
+  ['张老师', 'JS2026001', '石马镇中心小学', '语文', '中级首聘', 0, '否'],
+  ['李老师', 'JS2026002', '石马镇中心小学', '数学', '高级首聘', 0, '否'],
+  ['王老师', 'JS2026003', '石马镇第二小学', '英语', '层级内晋升', 1, '是'],
 ]
 
 export default function StudentManagement() {
@@ -54,7 +58,6 @@ export default function StudentManagement() {
     deleteStudent,
     importStudents,
     resetUserPassword,
-    settings,
     students,
     updateStudent,
     updateUserAccountStatus,
@@ -68,9 +71,14 @@ export default function StudentManagement() {
   const [importMessage, setImportMessage] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
+  const departments = useMemo(() => {
+    const values = students.map(student => student.department).filter(Boolean)
+    return Array.from(new Set([...defaultDepartments, ...values]))
+  }, [students])
+
   const filtered = students.filter(student => {
     const keyword = search.trim()
-    if (keyword && !`${student.name}${student.studentId}${student.major}`.includes(keyword)) return false
+    if (keyword && !`${student.name}${student.studentId}${student.department}${student.major}${student.grade}`.includes(keyword)) return false
     if (deptFilter && student.department !== deptFilter) return false
     return true
   })
@@ -79,19 +87,14 @@ export default function StudentManagement() {
   const inactiveCount = students.filter(student => student.accountStatus === 'inactive').length
   const lockedCount = students.filter(student => student.accountStatus === 'locked').length
 
-  const calculateBaseScore = (student: StudentProfile) => {
-    const { weights } = settings
-    const score =
-      student.academicScore * (weights.academic / 100) +
-      student.moralScore * (weights.moral / 100) +
-      student.practiceScore * (weights.practice / 100) +
-      student.sportsScore * (weights.sports / 100)
-    return Math.round(score * 10) / 10
-  }
-
   const openAdd = () => {
     setEditing(null)
-    setForm({ ...emptyStudent, id: `stu-${Date.now()}`, department: departments[0], grade: grades[0] })
+    setForm({
+      ...emptyStudent,
+      id: `stu-${Date.now()}`,
+      department: departments[0] || defaultDepartments[0],
+      grade: defaultCompetitionTypes[0],
+    })
     setShowModal(true)
   }
 
@@ -103,12 +106,7 @@ export default function StudentManagement() {
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.studentId.trim()) return
-    let result
-    if (editing) {
-      result = await updateStudent(form)
-    } else {
-      result = await addStudent(form)
-    }
+    const result = editing ? await updateStudent(form) : await addStudent(form)
     setImportMessage(result.message)
     if (result.ok) setShowModal(false)
   }
@@ -127,20 +125,20 @@ export default function StudentManagement() {
         department: toText(row[2]),
         major: toText(row[3]),
         grade: toText(row[4]),
-        academicScore: toNumber(row[5]),
-        moralScore: toNumber(row[6]),
-        practiceScore: toNumber(row[7]),
-        sportsScore: toNumber(row[8]),
-        failedCourses: Number.parseInt(toText(row[9]), 10) || 0,
-        volunteerHours: Number.parseInt(toText(row[10]), 10) || 0,
-        hasPunishment: ['是', '有', 'true', '1'].includes(toText(row[11]).toLowerCase()),
+        academicScore: 0,
+        moralScore: 0,
+        practiceScore: 0,
+        sportsScore: 0,
+        failedCourses: toNumber(row[5]),
+        volunteerHours: 0,
+        hasPunishment: parseBooleanText(row[6]),
         accountStatus: 'inactive',
         password: '123456',
         mustChangePassword: true,
       })
     }
     const result = await importStudents(nextStudents)
-    setImportMessage(result.message || `已导入或更新 ${nextStudents.length} 名用户`)
+    setImportMessage(result.message || `已导入或更新 ${nextStudents.length} 名申报人`)
   }
 
   const handleImport = (event: ChangeEvent<HTMLInputElement>) => {
@@ -177,7 +175,7 @@ export default function StudentManagement() {
 
   const exportStudents = () => {
     const source = selectedIds.size ? students.filter(student => selectedIds.has(student.id)) : filtered
-    const header = ['姓名', '用户编号', '所属单位', '分组/项目', '批次', '账号状态', '邀请码', '基础表现', '综合表现', '贡献表现', '规范记录', '基础指标分', '异常项数', '贡献时长', '限制记录', '激活时间', '最后登录']
+    const header = ['姓名', '用户编号', '所属单位', '任教学科/岗位', '竞聘类别', '账号状态', '邀请码', '限制项数', '参评限制记录', '激活时间', '最后登录']
     const rows = source.map(student => [
       student.name,
       student.studentId,
@@ -186,59 +184,38 @@ export default function StudentManagement() {
       student.grade,
       accountStatusLabels[student.accountStatus],
       student.inviteCode ?? '',
-      student.academicScore,
-      student.moralScore,
-      student.practiceScore,
-      student.sportsScore,
-      calculateBaseScore(student),
       student.failedCourses,
-      student.volunteerHours,
       student.hasPunishment ? '是' : '否',
       student.activatedAt ? new Date(student.activatedAt).toLocaleString('zh-CN') : '',
       student.lastLoginAt ? new Date(student.lastLoginAt).toLocaleString('zh-CN') : '',
     ])
-    downloadCsv('用户基础数据导出.csv', [header, ...rows])
+    downloadCsv('申报人名单导出.csv', [header, ...rows])
   }
 
   const downloadTemplate = () => {
-    downloadCsv('用户名单导入模板.csv', studentTemplateRows)
+    downloadCsv('申报人名单导入模板.csv', studentTemplateRows)
   }
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="用户基础数据"
-        description="维护用户名单、基础指标分和用户登录账号"
+        title="申报人数据"
+        description="维护申报人名单、任教学科、竞聘类别和登录邀请码"
         actions={
         <>
-          <Button
-            onClick={downloadTemplate}
-            variant="secondary"
-            className="flex-1 sm:flex-none"
-          >
+          <Button onClick={downloadTemplate} variant="secondary" className="flex-1 sm:flex-none">
             <FileSpreadsheet className="w-4 h-4" />
             下载模板
           </Button>
-          <Button
-            onClick={() => fileRef.current?.click()}
-            variant="secondary"
-            className="flex-1 sm:flex-none"
-          >
+          <Button onClick={() => fileRef.current?.click()} variant="secondary" className="flex-1 sm:flex-none">
             <Upload className="w-4 h-4" />
             一键导入名单
           </Button>
-          <Button
-            onClick={exportStudents}
-            variant="secondary"
-            className="flex-1 sm:flex-none"
-          >
+          <Button onClick={exportStudents} variant="secondary" className="flex-1 sm:flex-none">
             <Download className="w-4 h-4" />
             一键导出名单
           </Button>
-          <Button
-            onClick={openAdd}
-            className="flex-1 sm:flex-none"
-          >
+          <Button onClick={openAdd} className="flex-1 sm:flex-none">
             <Plus className="w-4 h-4" />
             新增
           </Button>
@@ -275,7 +252,7 @@ export default function StudentManagement() {
             value={search}
             onChange={event => setSearch(event.target.value)}
             className="w-full h-10 pl-9 pr-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="搜索姓名、用户编号、分组项目"
+            placeholder="搜索姓名、用户编号、单位、学科或竞聘类别"
           />
         </div>
         <select
@@ -289,10 +266,7 @@ export default function StudentManagement() {
           ))}
         </select>
         {selectedIds.size > 0 && (
-          <Button
-            onClick={batchDelete}
-            variant="danger"
-          >
+          <Button onClick={batchDelete} variant="danger">
             <Trash2 className="w-4 h-4" />
             删除 {selectedIds.size} 项
           </Button>
@@ -306,46 +280,23 @@ export default function StudentManagement() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-slate-900">{student.name}</p>
-                  <p className="text-xs text-slate-500 mt-1">{student.studentId} · {student.grade}</p>
+                  <p className="text-xs text-slate-500 mt-1">{student.studentId} · {student.grade || '未填写竞聘类别'}</p>
                 </div>
                 <Badge tone={accountStatusTones[student.accountStatus]} className="shrink-0">
                   {accountStatusLabels[student.accountStatus]}
                 </Badge>
               </div>
 
-                <div className="mt-3 rounded-lg bg-slate-50 border border-slate-100 p-3">
-                <p className="text-sm text-slate-700">{student.department}</p>
-                <p className="text-xs text-slate-500 mt-1">{student.major}</p>
+              <div className="mt-3 rounded-lg bg-slate-50 border border-slate-100 p-3">
+                <p className="text-sm text-slate-700">{student.department || '未填写单位'}</p>
+                <p className="text-xs text-slate-500 mt-1">{student.major || '未填写任教学科/岗位'}</p>
                 {student.inviteCode && (
                   <p className="text-xs text-blue-700 mt-2 font-medium">邀请码：{student.inviteCode}</p>
                 )}
-                <div className="grid grid-cols-2 gap-2 mt-3 text-sm">
-                  <div>
-                    <p className="text-xs text-slate-500">基础指标分</p>
-                    <p className="font-bold text-indigo-600">{calculateBaseScore(student).toFixed(1)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">限制项</p>
-                    <p className="font-medium text-slate-700">
-                      {student.failedCourses > 0 ? `异常${student.failedCourses}项` : '无异常'}
-                      {student.hasPunishment ? ' · 有限制' : ''}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-4 gap-2 mt-3">
-                {[
-                  ['基础', student.academicScore],
-                  ['综合', student.moralScore],
-                  ['贡献', student.practiceScore],
-                  ['规范', student.sportsScore],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-lg border border-slate-100 p-2 text-center">
-                    <p className="text-xs text-slate-500">{label}</p>
-                    <p className="text-sm font-semibold text-slate-800">{value}</p>
-                  </div>
-                ))}
+                <p className="text-xs text-slate-500 mt-2">
+                  限制项：{student.failedCourses > 0 ? `${student.failedCourses} 项` : '无'}
+                  {student.hasPunishment ? ' · 存在参评限制记录' : ''}
+                </p>
               </div>
 
               <div className="flex flex-wrap gap-2 mt-4">
@@ -390,18 +341,15 @@ export default function StudentManagement() {
                     type="checkbox"
                     checked={filtered.length > 0 && selectedIds.size === filtered.length}
                     onChange={toggleSelectAll}
-                    aria-label="全选用户"
+                    aria-label="全选申报人"
                   />
                 </th>
-                <th className="px-4 py-3 font-medium">用户</th>
+                <th className="px-4 py-3 font-medium">申报人</th>
                 <th className="px-4 py-3 font-medium">账号状态</th>
                 <th className="px-4 py-3 font-medium">邀请码</th>
-                <th className="px-4 py-3 font-medium">单位/分组</th>
-                <th className="px-4 py-3 font-medium">基础指标分</th>
-                <th className="px-4 py-3 font-medium">基础表现</th>
-                <th className="px-4 py-3 font-medium">综合表现</th>
-                <th className="px-4 py-3 font-medium">贡献表现</th>
-                <th className="px-4 py-3 font-medium">规范记录</th>
+                <th className="px-4 py-3 font-medium">所属单位</th>
+                <th className="px-4 py-3 font-medium">任教学科/岗位</th>
+                <th className="px-4 py-3 font-medium">竞聘类别</th>
                 <th className="px-4 py-3 font-medium">限制项</th>
                 <th className="px-4 py-3 font-medium text-right">操作</th>
               </tr>
@@ -419,7 +367,7 @@ export default function StudentManagement() {
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-900">{student.name}</p>
-                    <p className="text-xs text-slate-500">{student.studentId} · {student.grade}</p>
+                    <p className="text-xs text-slate-500">{student.studentId}</p>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-1">
@@ -442,17 +390,11 @@ export default function StudentManagement() {
                       <span className="text-xs text-slate-400">已激活</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
-                    <p className="text-slate-700">{student.department}</p>
-                    <p className="text-xs text-slate-500">{student.major}</p>
-                  </td>
-                  <td className="px-4 py-3 font-bold text-indigo-600">{calculateBaseScore(student).toFixed(1)}</td>
-                  <td className="px-4 py-3 text-slate-700">{student.academicScore}</td>
-                  <td className="px-4 py-3 text-slate-700">{student.moralScore}</td>
-                  <td className="px-4 py-3 text-slate-700">{student.practiceScore}</td>
-                  <td className="px-4 py-3 text-slate-700">{student.sportsScore}</td>
+                  <td className="px-4 py-3 text-slate-700">{student.department || '-'}</td>
+                  <td className="px-4 py-3 text-slate-700">{student.major || '-'}</td>
+                  <td className="px-4 py-3 text-slate-700">{student.grade || '-'}</td>
                   <td className="px-4 py-3 text-slate-500">
-                    {student.failedCourses > 0 ? `异常${student.failedCourses}项` : '无异常'}
+                    {student.failedCourses > 0 ? `${student.failedCourses} 项` : '无'}
                     {student.hasPunishment ? ' · 有限制' : ''}
                   </td>
                   <td className="px-4 py-3">
@@ -479,8 +421,8 @@ export default function StudentManagement() {
                       </button>
                       <button
                         onClick={() => openEdit(student)}
-                        className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                        aria-label="编辑用户"
+                        className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                        aria-label="编辑申报人"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
@@ -490,7 +432,7 @@ export default function StudentManagement() {
                           setImportMessage(`${student.name}：${result.message}`)
                         }}
                         className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
-                        aria-label="删除用户"
+                        aria-label="删除申报人"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -503,15 +445,15 @@ export default function StudentManagement() {
         </div>
 
         {filtered.length === 0 && (
-          <EmptyState icon={FileSpreadsheet} title="暂无用户数据" />
+          <EmptyState icon={FileSpreadsheet} title="暂无申报人数据" />
         )}
       </Panel>
 
       {showModal && (
         <div className="fixed inset-0 bg-blue-950/30 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-2xl shadow-slate-900/20 w-full max-w-3xl overflow-hidden">
+          <div className="bg-white rounded-lg shadow-2xl shadow-slate-900/20 w-full max-w-2xl overflow-hidden">
             <div className="h-14 px-5 flex items-center justify-between border-b border-slate-100">
-              <h2 className="font-bold text-slate-900">{editing ? '编辑用户' : '新增用户'}</h2>
+              <h2 className="font-bold text-slate-900">{editing ? '编辑申报人' : '新增申报人'}</h2>
               <button onClick={() => setShowModal(false)} className="p-1.5 rounded hover:bg-slate-100" aria-label="关闭">
                 <X className="w-5 h-5 text-slate-500" />
               </button>
@@ -519,27 +461,22 @@ export default function StudentManagement() {
             <div className="p-5 grid sm:grid-cols-2 gap-4 max-h-[70vh] overflow-auto">
               {!editing && (
                 <div className="sm:col-span-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-sm text-amber-700">
-                  新增用户默认未激活，初始密码为 123456，首次登录后必须修改密码。
+                  新增申报人默认未激活，初始密码为 123456，首次登录后必须修改密码。
                 </div>
               )}
               <TextInput label="姓名" value={form.name} onChange={value => setForm({ ...form, name: value })} />
               <TextInput label="用户编号" value={form.studentId} onChange={value => setForm({ ...form, studentId: value })} />
               <TextInput label="所属单位" value={form.department} onChange={value => setForm({ ...form, department: value })} />
-              <TextInput label="分组/项目" value={form.major} onChange={value => setForm({ ...form, major: value })} />
-              <TextInput label="批次" value={form.grade} onChange={value => setForm({ ...form, grade: value })} />
-              <NumberInput label="基础表现" value={form.academicScore} onChange={value => setForm({ ...form, academicScore: value })} />
-              <NumberInput label="综合表现" value={form.moralScore} onChange={value => setForm({ ...form, moralScore: value })} />
-              <NumberInput label="贡献表现" value={form.practiceScore} onChange={value => setForm({ ...form, practiceScore: value })} />
-              <NumberInput label="规范记录" value={form.sportsScore} onChange={value => setForm({ ...form, sportsScore: value })} />
-              <NumberInput label="异常项数" value={form.failedCourses} onChange={value => setForm({ ...form, failedCourses: value })} />
-              <NumberInput label="贡献时长" value={form.volunteerHours} onChange={value => setForm({ ...form, volunteerHours: value })} />
+              <TextInput label="任教学科/岗位" value={form.major} onChange={value => setForm({ ...form, major: value })} />
+              <TextInput label="竞聘类别" value={form.grade} onChange={value => setForm({ ...form, grade: value })} />
+              <NumberInput label="限制项数" value={form.failedCourses} onChange={value => setForm({ ...form, failedCourses: value })} />
               <label className="flex items-center gap-2 text-sm text-slate-700 pt-7">
                 <input
                   type="checkbox"
                   checked={form.hasPunishment}
                   onChange={event => setForm({ ...form, hasPunishment: event.target.checked })}
                 />
-                存在限制记录
+                存在参评限制记录
               </label>
             </div>
             <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
@@ -583,4 +520,3 @@ function NumberInput({ label, value, onChange }: { label: string; value: number;
     </label>
   )
 }
-

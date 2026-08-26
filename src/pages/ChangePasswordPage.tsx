@@ -37,7 +37,7 @@ export default function ChangePasswordPage() {
           </div>
           <h1 className="text-2xl font-bold text-slate-900">首次登录修改密码</h1>
           <p className="text-sm text-slate-500 mt-2">
-            {currentUser?.name}，为了避免账号被冒用，修改初始密码后才能上传加分项材料。
+            {currentUser?.name}，为了避免账号被冒用，修改初始密码后才能提交评分申报材料。
           </p>
         </div>
 

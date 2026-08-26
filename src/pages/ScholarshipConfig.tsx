@@ -1,16 +1,19 @@
-﻿import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Download, Edit2, Plus, RotateCcw, Save, Settings2, Trash2, Upload, X } from 'lucide-react'
 import { useStore } from '../store'
 import type { ApplicationBatch, BonusCategory, SystemSettings } from '../types'
-import { Badge, Button, PageHeader, Panel, SectionHeader } from '../components/ui'
+import { Badge, Button, PageHeader, Panel, SectionHeader, StatCard } from '../components/ui'
 
 const emptyCategory: BonusCategory = {
   id: '',
   name: '',
+  group: '奖励成果',
   defaultScore: 0,
   maxScore: 0,
   description: '',
+  requiredMaterials: '',
+  order: 99,
   active: true,
 }
 
@@ -39,7 +42,7 @@ export default function ScholarshipConfig() {
     updateCategory,
     updateSettings,
   } = useStore()
-  const [settingsForm, setSettingsForm] = useState<SystemSettings>(settings)
+  const [settingsDraft, setSettingsDraft] = useState<SystemSettings | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<BonusCategory | null>(null)
   const [categoryForm, setCategoryForm] = useState<BonusCategory>(emptyCategory)
@@ -49,15 +52,18 @@ export default function ScholarshipConfig() {
   const [message, setMessage] = useState('')
   const backupFileRef = useRef<HTMLInputElement>(null)
 
-  const weightTotal =
-    settingsForm.weights.academic +
-    settingsForm.weights.moral +
-    settingsForm.weights.practice +
-    settingsForm.weights.sports
+  const settingsForm = settingsDraft ?? settings
+
+  const sortedCategories = useMemo(() => [...categories]
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name)), [categories])
+  const visibleCategories = sortedCategories.filter(category => category.group !== '旧版加分项目')
+  const activeCategories = visibleCategories.filter(category => category.active)
+  const activeScoreTotal = activeCategories.reduce((sum, category) => sum + (Number(category.maxScore) || 0), 0)
+  const activeBatches = batches.filter(batch => batch.active).length
 
   const openAdd = () => {
     setEditing(null)
-    setCategoryForm({ ...emptyCategory, id: `cat-${Date.now()}` })
+    setCategoryForm({ ...emptyCategory, id: `cat-${Date.now()}`, order: visibleCategories.length + 1 })
     setShowModal(true)
   }
 
@@ -80,8 +86,19 @@ export default function ScholarshipConfig() {
   }
 
   const saveSettings = async () => {
-    const result = await updateSettings(settingsForm)
+    const result = await updateSettings({
+      ...settingsForm,
+      scoringMode: 'teacherCompetition',
+      weights: {
+        ...settingsForm.weights,
+        academic: 0,
+        moral: 0,
+        practice: 0,
+        sports: 0,
+      },
+    })
     setMessage(result.message)
+    if (result.ok) setSettingsDraft(null)
   }
 
   const saveCategory = async () => {
@@ -98,12 +115,17 @@ export default function ScholarshipConfig() {
     if (result.ok) setShowBatchModal(false)
   }
 
-  const updateWeight = (key: keyof SystemSettings['weights'], value: number) => {
-    setSettingsForm(prev => ({
-      ...prev,
+  const updateTotalCap = (value: number) => {
+    setSettingsDraft(prev => ({
+      ...(prev ?? settings),
+      scoringMode: 'teacherCompetition',
       weights: {
-        ...prev.weights,
-        [key]: value,
+        ...(prev ?? settings).weights,
+        academic: 0,
+        moral: 0,
+        practice: 0,
+        sports: 0,
+        bonusCap: value,
       },
     }))
   }
@@ -115,16 +137,16 @@ export default function ScholarshipConfig() {
     reader.onload = async loaded => {
       const result = await importData(String(loaded.target?.result ?? ''))
       setMessage(result.message)
-      if (result.settings) setSettingsForm(result.settings)
+      if (result.settings) setSettingsDraft(result.settings)
     }
     reader.readAsText(file)
     if (backupFileRef.current) backupFileRef.current.value = ''
   }
 
   const handleResetDemo = async () => {
-    if (!window.confirm('确认恢复演示数据？当前本地数据会被覆盖。')) return
+    if (!window.confirm('确认恢复演示数据？当前数据会被覆盖。')) return
     const nextSettings = await resetDemoData()
-    setSettingsForm(nextSettings)
+    setSettingsDraft(nextSettings)
     setMessage('已恢复演示数据')
   }
 
@@ -132,12 +154,9 @@ export default function ScholarshipConfig() {
     <div className="space-y-5">
       <PageHeader
         title="评分规则"
-        description="配置基础指标权重、加分上限和可申报的加分类型"
+        description="配置竞聘评分周期、申报批次和各评分项目细则"
         actions={
-        <Button
-          onClick={saveSettings}
-          className="w-full lg:w-auto"
-        >
+        <Button onClick={saveSettings} className="w-full lg:w-auto">
           <Save className="w-4 h-4" />
           保存规则
         </Button>
@@ -154,33 +173,18 @@ export default function ScholarshipConfig() {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <h2 className="font-bold text-slate-900">数据维护</h2>
-            <p className="text-sm text-slate-500 mt-1">本地演示数据可备份、恢复，也可以一键回到默认样例</p>
+            <p className="text-sm text-slate-500 mt-1">可导出完整数据备份，也可以导入备份恢复到历史状态</p>
           </div>
           <div className="flex flex-wrap gap-2 w-full lg:w-auto">
-            <Button
-              type="button"
-              onClick={exportData}
-              variant="secondary"
-              className="flex-1 sm:flex-none"
-            >
+            <Button type="button" onClick={exportData} variant="secondary" className="flex-1 sm:flex-none">
               <Download className="w-4 h-4" />
               导出备份
             </Button>
-            <Button
-              type="button"
-              onClick={() => backupFileRef.current?.click()}
-              variant="secondary"
-              className="flex-1 sm:flex-none"
-            >
+            <Button type="button" onClick={() => backupFileRef.current?.click()} variant="secondary" className="flex-1 sm:flex-none">
               <Upload className="w-4 h-4" />
               导入备份
             </Button>
-            <Button
-              type="button"
-              onClick={handleResetDemo}
-              variant="danger"
-              className="flex-1 sm:flex-none"
-            >
+            <Button type="button" onClick={handleResetDemo} variant="danger" className="flex-1 sm:flex-none">
               <RotateCcw className="w-4 h-4" />
               重置演示数据
             </Button>
@@ -192,32 +196,28 @@ export default function ScholarshipConfig() {
       <Panel className="p-5">
         <div className="flex items-center gap-2 mb-5">
           <Settings2 className="w-5 h-5 text-blue-600" />
-          <h2 className="font-bold text-slate-900">基础指标核算</h2>
-          <span className={`ml-auto text-sm font-medium ${weightTotal === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
-            权重合计 {weightTotal}%
-          </span>
+          <h2 className="font-bold text-slate-900">竞聘规则总览</h2>
         </div>
 
-        <div className="grid sm:grid-cols-2 xl:grid-cols-6 gap-4">
-          <TextInput label="评分周期" value={settingsForm.academicYear} onChange={value => setSettingsForm({ ...settingsForm, academicYear: value })} />
-          <TextInput label="申报截止日期" value={settingsForm.submissionDeadline} onChange={value => setSettingsForm({ ...settingsForm, submissionDeadline: value })} />
-          <NumberInput label="基础表现%" value={settingsForm.weights.academic} onChange={value => updateWeight('academic', value)} />
-          <NumberInput label="综合表现%" value={settingsForm.weights.moral} onChange={value => updateWeight('moral', value)} />
-          <NumberInput label="贡献表现%" value={settingsForm.weights.practice} onChange={value => updateWeight('practice', value)} />
-          <NumberInput label="规范记录%" value={settingsForm.weights.sports} onChange={value => updateWeight('sports', value)} />
-          <NumberInput label="单人加分上限" value={settingsForm.weights.bonusCap} onChange={value => updateWeight('bonusCap', value)} />
+        <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-4">
+          <TextInput label="评分周期" value={settingsForm.academicYear} onChange={value => setSettingsDraft({ ...settingsForm, academicYear: value })} />
+          <TextInput label="申报截止日期" value={settingsForm.submissionDeadline} onChange={value => setSettingsDraft({ ...settingsForm, submissionDeadline: value })} />
+          <NumberInput label="总分上限" value={settingsForm.weights.bonusCap} onChange={updateTotalCap} />
+          <StatCard label="启用项目满分" value={`${activeScoreTotal} 分`} tone={activeScoreTotal === 100 ? 'emerald' : 'amber'} />
+          <StatCard label="启用批次数" value={activeBatches} tone="cyan" />
+        </div>
+
+        <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm leading-6 text-slate-600">
+          当前采用专业技术岗位竞聘评分模式：申报人逐项填写自评分并上传证明材料，审核端复评后按单项满分和总分上限自动汇总排名。
         </div>
       </Panel>
 
       <Panel className="overflow-hidden">
         <SectionHeader
           title="申报批次"
-          description="按时间或业务场景管理不同申报入口，例如上半年综测、专项奖学金、职称申报"
+          description="可按竞聘类别、奖项或专项活动设置不同入口，只有启用批次会出现在用户端"
           action={
-          <Button
-            onClick={openAddBatch}
-            size="sm"
-          >
+          <Button onClick={openAddBatch} size="sm">
             <Plus className="w-4 h-4" />
             添加批次
           </Button>
@@ -248,7 +248,7 @@ export default function ScholarshipConfig() {
                     <div className="flex justify-end gap-1">
                       <button
                         onClick={() => openEditBatch(batch)}
-                        className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                        className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
                         aria-label="编辑批次"
                       >
                         <Edit2 className="w-4 h-4" />
@@ -274,15 +274,12 @@ export default function ScholarshipConfig() {
 
       <Panel className="overflow-hidden">
         <SectionHeader
-          title="加分类型"
-          description="用户上传加分项时会从启用的类型中选择"
+          title="评分项目"
+          description="用户端会展示项目说明和材料要求；审核端会按这里的满分上限进行复评"
           action={
-          <Button
-            onClick={openAdd}
-            size="sm"
-          >
+          <Button onClick={openAdd} size="sm">
             <Plus className="w-4 h-4" />
-            添加
+            添加项目
           </Button>
           }
         />
@@ -291,37 +288,44 @@ export default function ScholarshipConfig() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200 text-left text-slate-500">
               <tr>
-                <th className="px-5 py-3 font-medium">类型名称</th>
-                <th className="px-5 py-3 font-medium">默认分</th>
-                <th className="px-5 py-3 font-medium">上限</th>
+                <th className="px-5 py-3 font-medium">序号</th>
+                <th className="px-5 py-3 font-medium">分组</th>
+                <th className="px-5 py-3 font-medium">评分项目</th>
+                <th className="px-5 py-3 font-medium">满分</th>
                 <th className="px-5 py-3 font-medium">状态</th>
-                <th className="px-5 py-3 font-medium">说明</th>
+                <th className="px-5 py-3 font-medium">评分细则</th>
+                <th className="px-5 py-3 font-medium">材料要求</th>
                 <th className="px-5 py-3 font-medium text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {categories.map(category => (
-                <tr key={category.id} className="hover:bg-slate-50/80">
-                  <td className="px-5 py-4 font-semibold text-slate-900">{category.name}</td>
-                  <td className="px-5 py-4 text-slate-700">{category.defaultScore}</td>
+              {visibleCategories.map(category => (
+                <tr key={category.id} className="hover:bg-slate-50/80 align-top">
+                  <td className="px-5 py-4 text-slate-500">{category.order ?? '-'}</td>
+                  <td className="px-5 py-4 text-slate-700">{category.group || '-'}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-900 min-w-36">{category.name}</td>
                   <td className="px-5 py-4 text-slate-700">{category.maxScore}</td>
                   <td className="px-5 py-4">
                     <Badge tone={category.active ? 'emerald' : 'slate'}>{category.active ? '启用' : '停用'}</Badge>
                   </td>
-                  <td className="px-5 py-4 text-slate-500 max-w-md">{category.description}</td>
+                  <td className="px-5 py-4 text-slate-500 min-w-72 max-w-xl leading-6">{category.description}</td>
+                  <td className="px-5 py-4 text-slate-500 min-w-64 max-w-md leading-6">{category.requiredMaterials || '-'}</td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-1">
                       <button
                         onClick={() => openEdit(category)}
-                        className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                        aria-label="编辑类型"
+                        className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                        aria-label="编辑评分项目"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => deleteCategory(category.id)}
+                        onClick={async () => {
+                          const result = await deleteCategory(category.id)
+                          setMessage(result.message)
+                        }}
                         className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
-                        aria-label="删除类型"
+                        aria-label="删除评分项目"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -336,25 +340,37 @@ export default function ScholarshipConfig() {
 
       {showModal && (
         <div className="fixed inset-0 bg-blue-950/30 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-2xl shadow-slate-900/20 w-full max-w-xl overflow-hidden">
+          <div className="bg-white rounded-lg shadow-2xl shadow-slate-900/20 w-full max-w-2xl overflow-hidden">
             <div className="h-14 px-5 flex items-center justify-between border-b border-slate-100">
-              <h2 className="font-bold text-slate-900">{editing ? '编辑加分类型' : '添加加分类型'}</h2>
+              <h2 className="font-bold text-slate-900">{editing ? '编辑评分项目' : '添加评分项目'}</h2>
               <button onClick={() => setShowModal(false)} className="p-1.5 rounded hover:bg-slate-100" aria-label="关闭">
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            <div className="p-5 space-y-4">
-              <TextInput label="类型名称" value={categoryForm.name} onChange={value => setCategoryForm({ ...categoryForm, name: value })} />
-              <div className="grid grid-cols-2 gap-3">
-                <NumberInput label="默认分" value={categoryForm.defaultScore} onChange={value => setCategoryForm({ ...categoryForm, defaultScore: value })} />
-                <NumberInput label="上限分" value={categoryForm.maxScore} onChange={value => setCategoryForm({ ...categoryForm, maxScore: value })} />
+            <div className="p-5 space-y-4 max-h-[72vh] overflow-auto">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <TextInput label="分组" value={categoryForm.group || ''} onChange={value => setCategoryForm({ ...categoryForm, group: value })} />
+                <TextInput label="评分项目名称" value={categoryForm.name} onChange={value => setCategoryForm({ ...categoryForm, name: value })} />
+              </div>
+              <div className="grid sm:grid-cols-3 gap-3">
+                <NumberInput label="排序" value={categoryForm.order ?? 99} onChange={value => setCategoryForm({ ...categoryForm, order: value })} />
+                <NumberInput label="默认自评分" value={categoryForm.defaultScore} onChange={value => setCategoryForm({ ...categoryForm, defaultScore: value })} />
+                <NumberInput label="满分上限" value={categoryForm.maxScore} onChange={value => setCategoryForm({ ...categoryForm, maxScore: value })} />
               </div>
               <label className="block">
-                <span className="block text-sm font-medium text-slate-700 mb-1">说明</span>
+                <span className="block text-sm font-medium text-slate-700 mb-1">评分细则</span>
                 <textarea
                   value={categoryForm.description}
                   onChange={event => setCategoryForm({ ...categoryForm, description: event.target.value })}
-                  className="w-full min-h-24 px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full min-h-28 px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-sm font-medium text-slate-700 mb-1">材料要求</span>
+                <textarea
+                  value={categoryForm.requiredMaterials || ''}
+                  onChange={event => setCategoryForm({ ...categoryForm, requiredMaterials: event.target.value })}
+                  className="w-full min-h-20 px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </label>
               <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -363,7 +379,7 @@ export default function ScholarshipConfig() {
                   checked={categoryForm.active}
                   onChange={event => setCategoryForm({ ...categoryForm, active: event.target.checked })}
                 />
-                启用该类型
+                启用该评分项目
               </label>
             </div>
             <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
@@ -399,7 +415,7 @@ export default function ScholarshipConfig() {
                   value={batchForm.description}
                   onChange={event => setBatchForm({ ...batchForm, description: event.target.value })}
                   className="w-full min-h-24 px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="例如：用于上半年综测或专项奖学金申报"
+                  placeholder="例如：用于 2026 专业技术岗位竞聘、高级首聘或层级内晋升申报"
                 />
               </label>
               <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -445,7 +461,7 @@ function NumberInput({ label, value, onChange }: { label: string; value: number;
       <span className="block text-sm font-medium text-slate-700 mb-1">{label}</span>
       <input
         type="number"
-        step="0.5"
+        step="0.01"
         value={value}
         onChange={event => onChange(Number(event.target.value))}
         className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -453,4 +469,3 @@ function NumberInput({ label, value, onChange }: { label: string; value: number;
     </label>
   )
 }
-

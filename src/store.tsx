@@ -75,12 +75,13 @@ interface AppState extends StoredData {
 const emptySettings: SystemSettings = {
   academicYear: '',
   submissionDeadline: '',
+  scoringMode: 'teacherCompetition',
   weights: {
-    academic: 60,
-    moral: 15,
-    practice: 15,
-    sports: 10,
-    bonusCap: 20,
+    academic: 0,
+    moral: 0,
+    practice: 0,
+    sports: 0,
+    bonusCap: 100,
   },
 }
 
@@ -113,7 +114,7 @@ const apiRequest = async <T,>(url: string, options: RequestInit = {}): Promise<T
   return payload as T
 }
 
-const roundScore = (value: number) => Math.round(value * 10) / 10
+const roundScore = (value: number) => Math.round(value * 100) / 100
 
 const calculateBaseScore = (student: StudentProfile, settings: SystemSettings) => {
   const { weights } = settings
@@ -125,15 +126,55 @@ const calculateBaseScore = (student: StudentProfile, settings: SystemSettings) =
   return roundScore(weighted)
 }
 
-const createRankings = (students: StudentProfile[], applications: BonusApplication[], settings: SystemSettings): RankingResult[] => {
+const createCategoryScores = (
+  applications: BonusApplication[],
+  categories: BonusCategory[],
+  scoreKey: 'requestedScore' | 'approvedScore',
+) => {
+  const categoryMap = new Map(categories.filter(category => category.active !== false).map(category => [category.id, category]))
+  const scores: Record<string, number> = {}
+
+  applications.forEach(application => {
+    const category = categoryMap.get(application.categoryId)
+    if (!category) return
+    const currentScore = scores[application.categoryId] ?? 0
+    const nextScore = currentScore + (Number(application[scoreKey]) || 0)
+    scores[application.categoryId] = roundScore(Math.min(nextScore, Number(category.maxScore) || 0))
+  })
+
+  const total = roundScore(Object.values(scores).reduce((sum, score) => sum + score, 0))
+  return { scores, total }
+}
+
+const createRankings = (
+  students: StudentProfile[],
+  applications: BonusApplication[],
+  categories: BonusCategory[],
+  settings: SystemSettings,
+): RankingResult[] => {
+  const isTeacherCompetition = settings.scoringMode !== 'bonus'
+  const totalCap = Number(settings.weights.bonusCap) || 100
+  const activeCategoryIds = new Set(categories.filter(category => category.active !== false).map(category => category.id))
+
   const rows = students.map(student => {
-    const approvedApplications = applications.filter(app => app.studentId === student.studentId && app.status === 'approved')
-    const rawBonusScore = approvedApplications.reduce((sum, app) => sum + app.approvedScore, 0)
-    const bonusScore = roundScore(Math.min(rawBonusScore, settings.weights.bonusCap))
-    const baseScore = calculateBaseScore(student, settings)
+    const studentApplications = applications.filter(app => app.studentId === student.studentId)
+    const scoreableApplications = isTeacherCompetition
+      ? studentApplications.filter(app => activeCategoryIds.has(app.categoryId))
+      : studentApplications
+    const approvedApplications = scoreableApplications.filter(app => app.status === 'approved')
+    const submittedApplications = scoreableApplications.filter(app => app.status !== 'rejected')
+    const approvedCategoryScores = createCategoryScores(approvedApplications, categories, 'approvedScore')
+    const requestedCategoryScores = createCategoryScores(submittedApplications, categories, 'requestedScore')
+    const baseScore = isTeacherCompetition ? 0 : calculateBaseScore(student, settings)
+    const bonusScore = isTeacherCompetition
+      ? roundScore(Math.min(approvedCategoryScores.total, totalCap))
+      : roundScore(Math.min(approvedApplications.reduce((sum, app) => sum + app.approvedScore, 0), totalCap))
+    const selfScore = isTeacherCompetition
+      ? roundScore(Math.min(requestedCategoryScores.total, totalCap))
+      : roundScore(Math.min(submittedApplications.reduce((sum, app) => sum + app.requestedScore, 0), totalCap))
     const warnings: string[] = []
-    if (student.failedCourses > 0) warnings.push(`异常项 ${student.failedCourses} 个`)
-    if (student.hasPunishment) warnings.push('存在限制记录')
+    if (student.failedCourses > 0) warnings.push(`限制项 ${student.failedCourses} 个`)
+    if (student.hasPunishment) warnings.push('存在参评限制记录')
 
     return {
       studentId: student.studentId,
@@ -143,13 +184,17 @@ const createRankings = (students: StudentProfile[], applications: BonusApplicati
       grade: student.grade,
       baseScore,
       bonusScore,
+      selfScore,
       totalScore: roundScore(baseScore + bonusScore),
       rank: 0,
+      categoryScores: approvedCategoryScores.scores,
+      categorySelfScores: requestedCategoryScores.scores,
       approvedApplications,
       warnings,
     }
   }).sort((a, b) => {
     if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore
+    if (b.selfScore !== a.selfScore) return b.selfScore - a.selfScore
     if (b.baseScore !== a.baseScore) return b.baseScore - a.baseScore
     return a.studentId.localeCompare(b.studentId)
   })
@@ -213,7 +258,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [applyState])
 
-  const rankings = useMemo(() => createRankings(students, applications, settings), [students, applications, settings])
+  const rankings = useMemo(() => createRankings(students, applications, categories, settings), [students, applications, categories, settings])
 
   const getStudentByStudentId = useCallback((studentId: string) => (
     students.find(student => student.studentId === studentId)

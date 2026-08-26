@@ -1,12 +1,12 @@
-﻿import { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { CheckCircle2, Clock3, FileSearch, Search, X, XCircle } from 'lucide-react'
 import { useStore } from '../store'
-import type { ApplicationStatus, BonusApplication, MaterialAttachment } from '../types'
+import type { ApplicationStatus, BonusApplication, BonusCategory, MaterialAttachment } from '../types'
 import { Badge, Button, EmptyState, FilterBar, PageHeader, StatCard } from '../components/ui'
 
 const statusOptions: Array<{ value: 'all' | ApplicationStatus; label: string }> = [
   { value: 'all', label: '全部状态' },
-  { value: 'pending', label: '待审核' },
+  { value: 'pending', label: '待复评' },
   { value: 'approved', label: '已通过' },
   { value: 'rejected', label: '已驳回' },
 ]
@@ -24,15 +24,15 @@ const statusTones = {
 } as const
 
 const statusLabels = {
-  pending: '待审核',
+  pending: '待复评',
   approved: '已通过',
   rejected: '已驳回',
 }
 
 const logActionLabels = {
   submitted: '提交',
-  approved: '通过',
-  rejected: '驳回',
+  approved: '复评通过',
+  rejected: '复评驳回',
 }
 
 const formatDate = (value?: string) => value
@@ -45,14 +45,21 @@ const formatDate = (value?: string) => value
   : '-'
 
 export default function ReviewCenter() {
-  const { applications, batches, categories, getCategoryById, getStudentByStudentId, reviewApplication } = useStore()
+  const { applications, batches, categories, getCategoryById, getStudentByStudentId, reviewApplication, settings } = useStore()
   const [statusFilter, setStatusFilter] = useState<'all' | ApplicationStatus>('pending')
   const [batchFilter, setBatchFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [preview, setPreview] = useState<MaterialAttachment | null>(null)
+  const sortedCategories = useMemo(() => categories
+    .filter(category => category.active)
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name)), [categories])
+  const scoreableCategoryIds = useMemo(() => new Set(sortedCategories.map(category => category.id)), [sortedCategories])
+  const visibleApplications = useMemo(() => applications.filter(application => (
+    settings.scoringMode === 'bonus' || scoreableCategoryIds.has(application.categoryId)
+  )), [applications, scoreableCategoryIds, settings.scoringMode])
 
-  const filtered = useMemo(() => applications.filter(application => {
+  const filtered = useMemo(() => visibleApplications.filter(application => {
     const student = getStudentByStudentId(application.studentId)
     if (statusFilter !== 'all' && application.status !== statusFilter) return false
     if (batchFilter && application.batchId !== batchFilter) return false
@@ -67,18 +74,18 @@ export default function ReviewCenter() {
   }).sort((a, b) => {
     if (a.status !== b.status) return a.status === 'pending' ? -1 : 1
     return b.submittedAt.localeCompare(a.submittedAt)
-  }), [applications, batchFilter, categoryFilter, getStudentByStudentId, search, statusFilter])
+  }), [batchFilter, categoryFilter, getStudentByStudentId, search, statusFilter, visibleApplications])
 
   const stats = [
-    { label: '待审核', value: applications.filter(item => item.status === 'pending').length, tone: 'amber' as const },
-    { label: '已通过', value: applications.filter(item => item.status === 'approved').length, tone: 'emerald' as const },
-    { label: '已驳回', value: applications.filter(item => item.status === 'rejected').length, tone: 'red' as const },
-    { label: '申报总数', value: applications.length, tone: 'slate' as const },
+    { label: '待复评', value: visibleApplications.filter(item => item.status === 'pending').length, tone: 'amber' as const },
+    { label: '已通过', value: visibleApplications.filter(item => item.status === 'approved').length, tone: 'emerald' as const },
+    { label: '已驳回', value: visibleApplications.filter(item => item.status === 'rejected').length, tone: 'red' as const },
+    { label: '申报总数', value: visibleApplications.length, tone: 'slate' as const },
   ]
 
   return (
     <div className="space-y-5">
-      <PageHeader title="材料审核" description="审核用户上传的加分项与证明图片，认定最终加分" />
+      <PageHeader title="材料复评" description="复核申报人的自评分、证明图片和评分项目细则，确认最终复评分" />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {stats.map(item => (
@@ -120,9 +127,9 @@ export default function ReviewCenter() {
           onChange={event => setCategoryFilter(event.target.value)}
           className="h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         >
-          <option value="">全部类型</option>
-          {categories.map(category => (
-            <option key={category.id} value={category.id}>{category.name}</option>
+          <option value="">全部评分项目</option>
+          {sortedCategories.map(category => (
+            <option key={category.id} value={category.id}>{category.group ? `${category.group} / ` : ''}{category.name}</option>
           ))}
         </select>
       </FilterBar>
@@ -136,8 +143,7 @@ export default function ReviewCenter() {
               key={application.id}
               application={application}
               batchName={batches.find(batch => batch.id === application.batchId)?.name ?? '默认批次'}
-              categoryName={getCategoryById(application.categoryId)?.name ?? '未知类型'}
-              categoryMaxScore={getCategoryById(application.categoryId)?.maxScore ?? 0}
+              category={getCategoryById(application.categoryId)}
               student={getStudentByStudentId(application.studentId)}
               onPreview={setPreview}
               onReview={reviewApplication}
@@ -168,25 +174,24 @@ export default function ReviewCenter() {
 function ReviewCard({
   application,
   batchName,
-  categoryName,
-  categoryMaxScore,
+  category,
   student,
   onPreview,
   onReview,
 }: {
   application: BonusApplication
   batchName: string
-  categoryName: string
-  categoryMaxScore: number
+  category?: BonusCategory
   student?: ReturnType<typeof useStore>['students'][number]
   onPreview: (file: MaterialAttachment) => void
   onReview: (id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => void
 }) {
   const [score, setScore] = useState(String(application.approvedScore || application.requestedScore))
   const [comment, setComment] = useState(application.reviewComment ?? '')
+  const categoryMaxScore = category?.maxScore ?? 0
 
   const approve = () => onReview(application.id, 'approved', Number(score), comment)
-  const reject = () => onReview(application.id, 'rejected', 0, comment || '材料不符合认定要求')
+  const reject = () => onReview(application.id, 'rejected', 0, comment || '材料不符合评分细则要求')
 
   return (
     <article className={`relative bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm transition-all before:absolute before:inset-y-0 before:left-0 before:w-1 hover:-translate-y-0.5 hover:shadow-md ${statusAccentStyles[application.status]}`}>
@@ -197,7 +202,7 @@ function ReviewCard({
               <Badge tone={statusTones[application.status]}>{statusLabels[application.status]}</Badge>
               <Badge>{application.applicationNo}</Badge>
               <Badge>{batchName}</Badge>
-              <Badge>{categoryName}</Badge>
+              <Badge>{category?.group ? `${category.group} / ` : ''}{category?.name ?? '未知项目'}</Badge>
               <span className="text-xs text-slate-400">提交于 {formatDate(application.submittedAt)}</span>
             </div>
             <h2 className="font-bold text-slate-900 mt-3">{application.title}</h2>
@@ -205,11 +210,17 @@ function ReviewCard({
               {student ? `${student.name} · ${student.studentId} · ${student.department} · ${student.major}` : application.studentId}
             </p>
             {application.description && <p className="text-sm text-slate-600 leading-6 mt-3">{application.description}</p>}
+            {category && (
+              <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs leading-5 text-slate-600">
+                <p className="font-semibold text-slate-800">评分细则：{category.description || '管理员暂未填写细则。'}</p>
+                {category.requiredMaterials && <p className="mt-1 text-blue-700">材料要求：{category.requiredMaterials}</p>}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-2 min-w-56">
             <div className="rounded-lg bg-amber-50/60 border border-amber-100 p-3">
-              <p className="text-xs text-slate-500">申请</p>
+              <p className="text-xs text-slate-500">自评</p>
               <p className="text-xl font-bold text-slate-900">{application.requestedScore}</p>
             </div>
             <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
@@ -217,7 +228,7 @@ function ReviewCard({
               <p className="text-xl font-bold text-slate-900">{categoryMaxScore}</p>
             </div>
             <div className="rounded-lg bg-blue-50/70 border border-blue-100 p-3">
-              <p className="text-xs text-slate-500">认定</p>
+              <p className="text-xs text-slate-500">复评</p>
               <p className="text-xl font-bold text-indigo-600">{application.status === 'approved' ? application.approvedScore : '-'}</p>
             </div>
           </div>
@@ -245,11 +256,11 @@ function ReviewCard({
         {application.status === 'pending' ? (
           <div className="mt-5 rounded-lg bg-slate-50/80 border border-slate-200 p-3 grid lg:grid-cols-[150px_1fr_auto] gap-3 items-start">
             <label className="block">
-              <span className="block text-xs font-medium text-slate-500 mb-1">认定分数</span>
+              <span className="block text-xs font-medium text-slate-500 mb-1">复评分数</span>
               <input
                 type="number"
                 min="0"
-                step="0.5"
+                step="0.01"
                 max={categoryMaxScore}
                 value={score}
                 onChange={event => setScore(event.target.value)}
@@ -257,12 +268,12 @@ function ReviewCard({
               />
             </label>
             <label className="block">
-              <span className="block text-xs font-medium text-slate-500 mb-1">审核意见</span>
+              <span className="block text-xs font-medium text-slate-500 mb-1">复评意见</span>
               <textarea
                 value={comment}
                 onChange={event => setComment(event.target.value)}
                 className="w-full min-h-10 px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="通过时可简要说明，驳回时填写原因"
+                placeholder="通过时可简要说明复评依据，驳回时填写原因"
               />
             </label>
             <div className="flex flex-wrap gap-2 lg:pt-5">
@@ -292,7 +303,7 @@ function ReviewCard({
               <Clock3 className="w-4 h-4" />
               {application.reviewerName ?? '管理员'} · {formatDate(application.reviewedAt)}
             </div>
-            <p>{application.reviewComment || '无审核意见'}</p>
+            <p>{application.reviewComment || '无复评意见'}</p>
           </div>
         )}
 

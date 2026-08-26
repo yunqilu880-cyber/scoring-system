@@ -24,9 +24,9 @@ export default function Layout() {
       ]
     : [
         { to: '/', icon: LayoutDashboard, label: '工作台', end: true },
-        { to: '/users', icon: Users, label: '用户数据' },
+        { to: '/users', icon: Users, label: '申报人数据' },
         { to: '/rules', icon: Settings2, label: '评分规则' },
-        { to: '/review', icon: ClipboardCheck, label: '材料审核' },
+        { to: '/review', icon: ClipboardCheck, label: '材料复评' },
         { to: '/results', icon: Trophy, label: '排名结果' },
       ]
 
@@ -72,7 +72,7 @@ export default function Layout() {
         <div className="mb-3 rounded-lg bg-blue-50/80 ring-1 ring-blue-100 px-3 py-2.5">
           <p className="text-sm font-semibold text-slate-900 truncate">{currentUser?.name}</p>
           <p className="text-xs text-slate-500 mt-0.5">
-            {currentUser?.role === 'student' ? currentUser.studentId : '审核端'}
+            {currentUser?.role === 'student' ? currentUser.studentId : '管理端'}
           </p>
         </div>
         <button

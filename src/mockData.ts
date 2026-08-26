@@ -527,12 +527,13 @@ export const mockApplications: BonusApplication[] = [
 export const mockSettings: SystemSettings = {
   academicYear: '2025-2026 评分周期',
   submissionDeadline: '2026-08-31',
+  scoringMode: 'teacherCompetition',
   weights: {
-    academic: 60,
-    moral: 15,
-    practice: 15,
-    sports: 10,
-    bonusCap: 20,
+    academic: 0,
+    moral: 0,
+    practice: 0,
+    sports: 0,
+    bonusCap: 100,
   },
 }
 

@@ -4,12 +4,17 @@ import { useStore } from '../store'
 import { Button, EmptyState, FilterBar, PageHeader, Panel, StatCard } from '../components/ui'
 import { downloadCsv } from '../utils/csv'
 
+const formatScore = (value: number) => value.toFixed(2)
+
 export default function EvaluationResults() {
-  const { getCategoryById, rankings, settings } = useStore()
+  const { categories, getCategoryById, rankings, settings } = useStore()
   const [search, setSearch] = useState('')
   const [departmentFilter, setDepartmentFilter] = useState('')
   const [expandedId, setExpandedId] = useState('')
 
+  const scoreCategories = useMemo(() => categories
+    .filter(category => category.active)
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name)), [categories])
   const departments = useMemo(() => Array.from(new Set(rankings.map(row => row.department))), [rankings])
   const filtered = rankings.filter(row => {
     const keyword = search.trim()
@@ -19,12 +24,13 @@ export default function EvaluationResults() {
   })
 
   const averageTotal = rankings.length
-    ? (rankings.reduce((sum, row) => sum + row.totalScore, 0) / rankings.length).toFixed(1)
-    : '0.0'
+    ? formatScore(rankings.reduce((sum, row) => sum + row.totalScore, 0) / rankings.length)
+    : '0.00'
   const approvedTotal = rankings.reduce((sum, row) => sum + row.approvedApplications.length, 0)
 
   const exportResults = () => {
-    const header = ['排名', '姓名', '用户编号', '所属单位', '分组/项目', '批次', '基础指标分', '认定加分', '总分', '通过项目', '限制提醒']
+    const categoryHeader = scoreCategories.map(category => `${category.group ? `${category.group}-` : ''}${category.name}`)
+    const header = ['排名', '姓名', '用户编号', '所属单位', '任教学科/岗位', '竞聘类别', '自评分', '复评分', ...categoryHeader, '通过项目', '限制提醒']
     const rows = filtered.map(row => [
       row.rank,
       row.studentName,
@@ -32,20 +38,20 @@ export default function EvaluationResults() {
       row.department,
       row.major,
       row.grade,
-      row.baseScore,
-      row.bonusScore,
+      row.selfScore,
       row.totalScore,
-      row.approvedApplications.map(app => `${app.applicationNo}-${getCategoryById(app.categoryId)?.name ?? '未知类型'}-${app.title}-${app.approvedScore}分`).join('；'),
+      ...scoreCategories.map(category => row.categoryScores[category.id] ?? 0),
+      row.approvedApplications.map(app => `${app.applicationNo}-${getCategoryById(app.categoryId)?.name ?? '未知项目'}-${app.title}-${app.approvedScore}分`).join('；'),
       row.warnings.join('；'),
     ])
-    downloadCsv('评分系统排名结果.csv', [header, ...rows])
+    downloadCsv('专业技术岗位竞聘评分排名.csv', [header, ...rows])
   }
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="排名结果"
-        description={`${settings.academicYear} · 仅统计审核通过的加分项`}
+        description={`${settings.academicYear} · 仅统计复评通过的评分项目`}
         actions={
         <Button
           onClick={exportResults}
@@ -60,9 +66,9 @@ export default function EvaluationResults() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: '参评人数', value: rankings.length, tone: 'slate' as const },
-          { label: '平均总分', value: averageTotal, tone: 'cyan' as const },
-          { label: '通过项目', value: approvedTotal, tone: 'emerald' as const },
-          { label: '加分上限', value: settings.weights.bonusCap, tone: 'amber' as const },
+          { label: '平均复评分', value: averageTotal, tone: 'cyan' as const },
+          { label: '通过材料', value: approvedTotal, tone: 'emerald' as const },
+          { label: '总分上限', value: settings.weights.bonusCap, tone: 'amber' as const },
         ].map(item => (
           <StatCard key={item.label} label={item.label} value={item.value} tone={item.tone} />
         ))}
@@ -75,7 +81,7 @@ export default function EvaluationResults() {
             value={search}
             onChange={event => setSearch(event.target.value)}
             className="w-full h-10 pl-9 pr-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="搜索姓名、用户编号、分组项目"
+            placeholder="搜索姓名、用户编号、任教学科"
           />
         </div>
         <select
@@ -108,7 +114,7 @@ export default function EvaluationResults() {
                         <p className="font-semibold text-slate-900">{row.studentName}</p>
                         <p className="text-xs text-slate-500 mt-1">{row.studentId} · {row.grade}</p>
                       </div>
-                      <p className="text-xl font-bold text-slate-900">{row.totalScore.toFixed(1)}</p>
+                      <p className="text-xl font-bold text-slate-900">{formatScore(row.totalScore)}</p>
                     </div>
                     <p className="text-sm text-slate-600 mt-2">{row.department}</p>
                     <p className="text-xs text-slate-500 mt-1">{row.major}</p>
@@ -117,12 +123,12 @@ export default function EvaluationResults() {
 
                 <div className="grid grid-cols-3 gap-2 mt-4">
                   <div className="rounded-lg bg-slate-50 border border-slate-100 p-2 text-center">
-                    <p className="text-xs text-slate-500">基础</p>
-                    <p className="text-sm font-semibold text-slate-800">{row.baseScore.toFixed(1)}</p>
+                    <p className="text-xs text-slate-500">自评</p>
+                    <p className="text-sm font-semibold text-slate-800">{formatScore(row.selfScore)}</p>
                   </div>
                   <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-2 text-center">
-                    <p className="text-xs text-emerald-700">加分</p>
-                    <p className="text-sm font-semibold text-emerald-700">{row.bonusScore.toFixed(1)}</p>
+                    <p className="text-xs text-emerald-700">复评</p>
+                    <p className="text-sm font-semibold text-emerald-700">{formatScore(row.totalScore)}</p>
                   </div>
                   <div className="rounded-lg bg-slate-50 border border-slate-100 p-2 text-center">
                     <p className="text-xs text-slate-500">提醒</p>
@@ -141,14 +147,14 @@ export default function EvaluationResults() {
                 {isExpanded && (
                   <div className="mt-3 space-y-2">
                     {row.approvedApplications.length === 0 ? (
-                      <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-sm text-slate-500">暂无审核通过的加分项</div>
+                      <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-sm text-slate-500">暂无复评通过的评分项目</div>
                     ) : row.approvedApplications.map(application => (
                       <div key={application.id} className="rounded-lg bg-slate-50 border border-slate-100 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-sm font-semibold text-slate-900">{application.title}</p>
                             <p className="text-xs text-slate-500 mt-1">
-                              {application.applicationNo} · {getCategoryById(application.categoryId)?.name ?? '未知类型'}
+                              {application.applicationNo} · {getCategoryById(application.categoryId)?.name ?? '未知项目'}
                             </p>
                           </div>
                           <span className="text-sm font-bold text-emerald-600 shrink-0">{application.approvedScore} 分</span>
@@ -167,11 +173,11 @@ export default function EvaluationResults() {
             <thead className="bg-slate-50 border-b border-slate-200 text-left text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-medium w-20">排名</th>
-                <th className="px-4 py-3 font-medium">用户</th>
-                <th className="px-4 py-3 font-medium">单位/分组</th>
-                <th className="px-4 py-3 font-medium">基础指标分</th>
-                <th className="px-4 py-3 font-medium">加分</th>
-                <th className="px-4 py-3 font-medium">总分</th>
+                <th className="px-4 py-3 font-medium">申报人</th>
+                <th className="px-4 py-3 font-medium">单位/类别</th>
+                <th className="px-4 py-3 font-medium">自评分</th>
+                <th className="px-4 py-3 font-medium">复评分</th>
+                <th className="px-4 py-3 font-medium">通过项目</th>
                 <th className="px-4 py-3 font-medium">提醒</th>
                 <th className="px-4 py-3 font-medium text-right">明细</th>
               </tr>
@@ -197,9 +203,9 @@ export default function EvaluationResults() {
                         <p className="text-slate-700">{row.department}</p>
                         <p className="text-xs text-slate-500">{row.major}</p>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{row.baseScore.toFixed(1)}</td>
-                      <td className="px-4 py-3 text-emerald-600 font-semibold">{row.bonusScore.toFixed(1)}</td>
-                      <td className="px-4 py-3 text-slate-900 font-bold">{row.totalScore.toFixed(1)}</td>
+                      <td className="px-4 py-3 text-slate-700">{formatScore(row.selfScore)}</td>
+                      <td className="px-4 py-3 text-slate-900 font-bold">{formatScore(row.totalScore)}</td>
+                      <td className="px-4 py-3 text-emerald-600 font-semibold">{row.approvedApplications.length} 项</td>
                       <td className="px-4 py-3">
                         {row.warnings.length > 0 ? (
                           <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-700">
@@ -215,7 +221,7 @@ export default function EvaluationResults() {
                           onClick={() => setExpandedId(isExpanded ? '' : row.studentId)}
                           className="inline-flex items-center gap-1 text-sm text-blue-700 hover:text-blue-800"
                         >
-                          {row.approvedApplications.length} 项
+                          查看
                           {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                         </button>
                       </td>
@@ -224,16 +230,27 @@ export default function EvaluationResults() {
                       <tr key={`${row.studentId}-details`}>
                         <td colSpan={8} className="px-4 py-4 bg-slate-50">
                           {row.approvedApplications.length === 0 ? (
-                            <div className="text-sm text-slate-500">暂无审核通过的加分项</div>
+                            <div className="text-sm text-slate-500">暂无复评通过的评分项目</div>
                           ) : (
-                            <div className="grid lg:grid-cols-2 gap-3">
+                            <div className="space-y-3">
+                              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                                {scoreCategories
+                                  .filter(category => row.categoryScores[category.id])
+                                  .map(category => (
+                                    <div key={category.id} className="rounded-lg bg-white border border-slate-200 px-3 py-2">
+                                      <p className="text-xs text-slate-500">{category.name}</p>
+                                      <p className="text-sm font-bold text-slate-900 mt-1">{formatScore(row.categoryScores[category.id])}</p>
+                                    </div>
+                                  ))}
+                              </div>
+                              <div className="grid lg:grid-cols-2 gap-3">
                               {row.approvedApplications.map(application => (
                                 <div key={application.id} className="rounded-lg bg-white border border-slate-200 p-4">
                                   <div className="flex items-start justify-between gap-3">
                                     <div>
                                       <p className="font-semibold text-slate-900">{application.title}</p>
                                       <p className="text-xs text-slate-500 mt-1">
-                                        {application.applicationNo} · {getCategoryById(application.categoryId)?.name ?? '未知类型'}
+                                        {application.applicationNo} · {getCategoryById(application.categoryId)?.name ?? '未知项目'}
                                       </p>
                                     </div>
                                     <span className="text-sm font-bold text-emerald-600">{application.approvedScore} 分</span>
@@ -243,6 +260,7 @@ export default function EvaluationResults() {
                                   )}
                                 </div>
                               ))}
+                              </div>
                             </div>
                           )}
                         </td>
