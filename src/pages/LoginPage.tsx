@@ -207,6 +207,7 @@ export default function LoginPage() {
               <span className="mb-1 block text-sm font-medium text-slate-700">密码</span>
               <input
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={event => setPassword(event.target.value)}
                 className="h-11 w-full rounded-lg border border-slate-300 px-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -228,6 +229,7 @@ export default function LoginPage() {
                 <span className="mb-1 block text-sm font-medium text-slate-700">设置密码</span>
                 <input
                   type="password"
+                  autoComplete="new-password"
                   value={newPassword}
                   onChange={event => setNewPassword(event.target.value)}
                   className="h-11 w-full rounded-lg border border-slate-300 px-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -238,6 +240,7 @@ export default function LoginPage() {
                 <span className="mb-1 block text-sm font-medium text-slate-700">确认密码</span>
                 <input
                   type="password"
+                  autoComplete="new-password"
                   value={confirmPassword}
                   onChange={event => setConfirmPassword(event.target.value)}
                   className="h-11 w-full rounded-lg border border-slate-300 px-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"

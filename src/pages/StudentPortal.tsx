@@ -97,6 +97,14 @@ export default function StudentPortal() {
   const selectedCategory = getCategoryById(effectiveCategoryId)
   const selectedBatch = activeBatches.find(batch => batch.id === effectiveBatchId)
   const effectiveRequestedScore = requestedScore ?? selectedCategory?.defaultScore ?? 0
+  const selectedCategoryApplications = myApplications.filter(application => (
+    application.categoryId === effectiveCategoryId && application.status !== 'rejected'
+  ))
+  const selectedCategorySelfTotal = selectedCategoryApplications.reduce((sum, application) => sum + application.requestedScore, 0)
+  const selectedCategoryApprovedTotal = selectedCategoryApplications
+    .filter(application => application.status === 'approved')
+    .reduce((sum, application) => sum + application.approvedScore, 0)
+  const selectedCategoryRemainingSelf = Math.max(0, (selectedCategory?.maxScore ?? 0) - selectedCategorySelfTotal)
 
   const handleCategoryChange = (nextCategoryId: string) => {
     const nextCategory = getCategoryById(nextCategoryId)
@@ -139,6 +147,14 @@ export default function StudentPortal() {
     }
     if (!effectiveBatchId || !effectiveCategoryId || !title.trim()) {
       setMessage('请补全申报批次、评分项目和项目名称')
+      return
+    }
+    if (effectiveRequestedScore <= 0) {
+      setMessage('自评分必须大于 0')
+      return
+    }
+    if (effectiveRequestedScore > selectedCategoryRemainingSelf) {
+      setMessage(`该评分项目剩余可申报 ${formatScore(selectedCategoryRemainingSelf)} 分，请调整自评分`)
       return
     }
     if (!attachments.length) {
@@ -255,6 +271,20 @@ export default function StudentPortal() {
                   材料要求：{selectedCategory.requiredMaterials}
                 </p>
               )}
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-white/80 px-2 py-2 ring-1 ring-blue-100">
+                  <p className="text-[11px] text-slate-500">已自评</p>
+                  <p className="text-sm font-bold text-slate-900">{formatScore(selectedCategorySelfTotal)}</p>
+                </div>
+                <div className="rounded-lg bg-white/80 px-2 py-2 ring-1 ring-blue-100">
+                  <p className="text-[11px] text-slate-500">已认定</p>
+                  <p className="text-sm font-bold text-emerald-600">{formatScore(selectedCategoryApprovedTotal)}</p>
+                </div>
+                <div className="rounded-lg bg-white/80 px-2 py-2 ring-1 ring-blue-100">
+                  <p className="text-[11px] text-slate-500">剩余可报</p>
+                  <p className="text-sm font-bold text-blue-700">{formatScore(selectedCategoryRemainingSelf)}</p>
+                </div>
+              </div>
             </div>
 
             <label className="block">
@@ -337,7 +367,7 @@ export default function StudentPortal() {
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting || activeBatches.length === 0}
+              disabled={submitting || activeBatches.length === 0 || selectedCategoryRemainingSelf <= 0}
             >
               <Send className="w-4 h-4" />
               {submitting ? '提交中...' : '提交复评'}

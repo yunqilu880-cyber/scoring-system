@@ -9,6 +9,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "backup:data": "node server/backup-data.js",
+    "reset:admin-password": "node server/reset-admin-password.js",
     "start": "node server/index.js"
   },
   "dependencies": {

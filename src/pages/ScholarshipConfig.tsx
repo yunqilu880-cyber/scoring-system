@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { Download, Edit2, Plus, RotateCcw, Save, Settings2, Trash2, Upload, X } from 'lucide-react'
+import { Archive, Download, Edit2, Plus, RotateCcw, Save, Settings2, Trash2, Upload, X } from 'lucide-react'
 import { useStore } from '../store'
 import type { ApplicationBatch, BonusCategory, SystemSettings } from '../types'
 import { Badge, Button, PageHeader, Panel, SectionHeader, StatCard } from '../components/ui'
@@ -31,6 +31,7 @@ export default function ScholarshipConfig() {
     addBatch,
     addCategory,
     batches,
+    createBackup,
     categories,
     deleteBatch,
     deleteCategory,
@@ -150,6 +151,11 @@ export default function ScholarshipConfig() {
     setMessage('已恢复演示数据')
   }
 
+  const handleCreateBackup = async () => {
+    const result = await createBackup()
+    setMessage(result.message)
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -176,6 +182,10 @@ export default function ScholarshipConfig() {
             <p className="text-sm text-slate-500 mt-1">可导出完整数据备份，也可以导入备份恢复到历史状态</p>
           </div>
           <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+            <Button type="button" onClick={handleCreateBackup} variant="secondary" className="flex-1 sm:flex-none">
+              <Archive className="w-4 h-4" />
+              立即备份
+            </Button>
             <Button type="button" onClick={exportData} variant="secondary" className="flex-1 sm:flex-none">
               <Download className="w-4 h-4" />
               导出备份

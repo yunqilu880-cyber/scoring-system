@@ -4,6 +4,7 @@ import {
   ClipboardCheck,
   FilePlus2,
   GraduationCap,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -21,6 +22,7 @@ export default function Layout() {
   const navItems = currentUser?.role === 'student'
     ? [
         { to: '/submit', icon: FilePlus2, label: '我的申报', end: true },
+        { to: '/change-password', icon: KeyRound, label: '修改密码' },
       ]
     : [
         { to: '/', icon: LayoutDashboard, label: '工作台', end: true },
@@ -28,6 +30,7 @@ export default function Layout() {
         { to: '/rules', icon: Settings2, label: '评分规则' },
         { to: '/review', icon: ClipboardCheck, label: '材料复评' },
         { to: '/results', icon: Trophy, label: '排名结果' },
+        { to: '/change-password', icon: KeyRound, label: '修改密码' },
       ]
 
   const handleLogout = () => {

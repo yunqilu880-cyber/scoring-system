@@ -12,6 +12,7 @@ const distDir = path.join(rootDir, 'dist')
 const indexHtml = path.join(distDir, 'index.html')
 const dataDir = process.env.DATA_DIR || path.join(rootDir, 'data')
 const uploadDir = process.env.UPLOAD_DIR || path.join(dataDir, 'uploads')
+const backupDir = process.env.BACKUP_DIR || path.join(dataDir, 'backups')
 const dbPath = path.join(dataDir, 'data.json')
 
 const PORT = Number(process.env.PORT || 3000)
@@ -21,6 +22,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123'
 const COOKIE_NAME = 'scoring_session'
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const MAX_BACKUP_COUNT = 20
 
 let db
 let writeQueue = Promise.resolve()
@@ -49,6 +51,20 @@ const verifyPassword = async (password, storedHash) => {
     })
   })
   return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'))
+}
+
+const normalizeAdminAccount = async source => ({
+  username: String(source?.username || ADMIN_USERNAME).trim() || ADMIN_USERNAME,
+  name: String(source?.name || '审核管理员').trim() || '审核管理员',
+  passwordHash: source?.passwordHash || await hashPassword(ADMIN_PASSWORD),
+  updatedAt: source?.updatedAt || nowIso(),
+})
+
+const getAdminAccount = () => db.adminAccount || {
+  username: ADMIN_USERNAME,
+  name: '审核管理员',
+  passwordHash: '',
+  updatedAt: '',
 }
 
 const makeInviteCode = () => {
@@ -498,6 +514,7 @@ const migrateBatches = sourceBatches => {
 }
 
 const createSeedData = async () => ({
+  adminAccount: await normalizeAdminAccount(),
   students: await Promise.all(seedStudents.map(async row => {
     const [id, name, studentId, department, major, grade, academicScore, moralScore, practiceScore, sportsScore, failedCourses, hasPunishment, volunteerHours, accountStatus, mustChangePassword] = row
     return {
@@ -531,6 +548,7 @@ const createSeedData = async () => ({
 
 const migrateDb = async source => {
   const next = {
+    adminAccount: await normalizeAdminAccount(source.adminAccount),
     students: Array.isArray(source.students) ? source.students : [],
     batches: migrateBatches(source.batches),
     categories: migrateCategories(source.categories),
@@ -699,7 +717,8 @@ const getCurrentUser = req => {
   if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return null
 
   if (session.role === 'admin') {
-    return { id: 'admin', role: 'admin', name: '审核管理员', username: ADMIN_USERNAME }
+    const adminAccount = getAdminAccount()
+    return { id: 'admin', role: 'admin', name: adminAccount.name, username: adminAccount.username }
   }
 
   const student = db.students.find(item => item.id === session.userId)
@@ -805,6 +824,42 @@ const persistAttachment = async attachment => {
 
 const persistAttachments = async attachments => Promise.all((attachments || []).map(persistAttachment))
 
+const createDataBackup = async (reason = 'manual') => {
+  await fs.mkdir(backupDir, { recursive: true })
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const backupName = `${stamp}-${safeFilename(reason) || 'backup'}`
+  const targetDir = path.join(backupDir, backupName)
+  await fs.mkdir(targetDir, { recursive: true })
+
+  if (existsSync(dbPath)) {
+    await fs.copyFile(dbPath, path.join(targetDir, 'data.json'))
+  }
+  if (existsSync(uploadDir)) {
+    await fs.cp(uploadDir, path.join(targetDir, 'uploads'), { recursive: true })
+  }
+  await fs.writeFile(
+    path.join(targetDir, 'README.txt'),
+    `评分系统数据备份\n时间：${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n原因：${reason}\n内容：data.json 和 uploads 证明材料目录\n`,
+    'utf8',
+  )
+
+  try {
+    const entries = await fs.readdir(backupDir, { withFileTypes: true })
+    const backupFolders = entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort()
+      .reverse()
+    await Promise.all(backupFolders.slice(MAX_BACKUP_COUNT).map(name => (
+      fs.rm(path.join(backupDir, name), { recursive: true, force: true })
+    )))
+  } catch (error) {
+    console.warn('备份清理失败，可忽略：', error)
+  }
+
+  return targetDir
+}
+
 const app = express()
 app.set('trust proxy', 1)
 app.use(cookieParser())
@@ -826,11 +881,12 @@ app.post('/api/auth/login', async (req, res) => {
   const password = String(req.body?.password || '')
 
   if (role === 'admin') {
-    if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    const adminAccount = getAdminAccount()
+    if (username !== adminAccount.username || !await verifyPassword(password, adminAccount.passwordHash)) {
       res.status(401).json({ ok: false, message: '管理员账号或密码不正确' })
       return
     }
-    const user = { id: 'admin', role: 'admin', name: '审核管理员', username: ADMIN_USERNAME }
+    const user = { id: 'admin', role: 'admin', name: adminAccount.name, username: adminAccount.username }
     await createSession(res, user)
     req.currentUser = user
     apiOk(req, res, '登录成功')
@@ -926,21 +982,35 @@ app.post('/api/auth/logout', requireAuth, async (req, res) => {
 })
 
 app.post('/api/auth/change-password', requireAuth, async (req, res) => {
-  if (req.currentUser.role !== 'student') {
-    res.status(400).json({ ok: false, message: '管理员账号不需要在此修改密码' })
+  const oldPassword = String(req.body?.oldPassword || '')
+  const newPassword = String(req.body?.newPassword || '')
+
+  if (newPassword.length < 6 || newPassword === INITIAL_PASSWORD || newPassword === oldPassword) {
+    res.status(400).json({ ok: false, message: '新密码至少 6 位，不能与原密码或初始密码相同' })
     return
   }
 
-  const oldPassword = String(req.body?.oldPassword || '')
-  const newPassword = String(req.body?.newPassword || '')
+  if (req.currentUser.role === 'admin') {
+    const adminAccount = getAdminAccount()
+    if (!await verifyPassword(oldPassword, adminAccount.passwordHash)) {
+      res.status(400).json({ ok: false, message: '原密码不正确' })
+      return
+    }
+    db.adminAccount = {
+      ...adminAccount,
+      passwordHash: await hashPassword(newPassword),
+      updatedAt: nowIso(),
+    }
+    await saveDb()
+    req.currentUser = { ...req.currentUser, name: db.adminAccount.name, username: db.adminAccount.username }
+    apiOk(req, res, '管理员密码已修改')
+    return
+  }
+
   const student = db.students.find(item => item.studentId === req.currentUser.studentId)
 
   if (!student || !await verifyPassword(oldPassword, student.passwordHash)) {
     res.status(400).json({ ok: false, message: '原密码不正确' })
-    return
-  }
-  if (newPassword.length < 6 || newPassword === INITIAL_PASSWORD || newPassword === oldPassword) {
-    res.status(400).json({ ok: false, message: '新密码至少 6 位，不能与原密码或初始密码相同' })
     return
   }
 
@@ -1195,7 +1265,33 @@ app.post('/api/applications', requireAuth, async (req, res) => {
     res.status(400).json({ ok: false, message: '用户、申报批次或评分项目不存在' })
     return
   }
+  const title = String(input.title || '').trim()
+  const incomingAttachments = Array.isArray(input.attachments) ? input.attachments : []
+  if (!title || !incomingAttachments.length) {
+    res.status(400).json({ ok: false, message: '请补全项目名称并上传证明图片' })
+    return
+  }
+  const usedSelfScore = db.applications
+    .filter(application => (
+      application.studentId === student.studentId &&
+      application.categoryId === category.id &&
+      application.status !== 'rejected'
+    ))
+    .reduce((sum, application) => sum + (Number(application.requestedScore) || 0), 0)
+  const remainingSelfScore = roundScore(Math.max(0, Number(category.maxScore) - usedSelfScore))
+  if (remainingSelfScore <= 0) {
+    res.status(400).json({ ok: false, message: '该评分项目的自评分已达到满分上限，请勿重复提交' })
+    return
+  }
   const requestedScore = clampScore(Number(input.requestedScore), category.maxScore)
+  if (requestedScore <= 0) {
+    res.status(400).json({ ok: false, message: '自评分必须大于 0' })
+    return
+  }
+  if (requestedScore > remainingSelfScore) {
+    res.status(400).json({ ok: false, message: `该评分项目剩余可申报 ${remainingSelfScore} 分，请调整自评分` })
+    return
+  }
   const time = nowIso()
   const application = {
     id: uid('app'),
@@ -1203,20 +1299,16 @@ app.post('/api/applications', requireAuth, async (req, res) => {
     studentId: student.studentId,
     batchId: batch.id,
     categoryId: category.id,
-    title: String(input.title || '').trim(),
+    title,
     description: String(input.description || '').trim(),
     requestedScore,
     approvedScore: 0,
     status: 'pending',
-    attachments: await persistAttachments(input.attachments),
+    attachments: await persistAttachments(incomingAttachments),
     reviewLogs: [
       { id: uid('log'), action: 'submitted', actorName: student.name, comment: '提交申报材料', score: requestedScore, createdAt: time },
     ],
     submittedAt: time,
-  }
-  if (!application.title || !application.attachments.length) {
-    res.status(400).json({ ok: false, message: '请补全项目名称并上传证明图片' })
-    return
   }
   db.applications.unshift(application)
   await saveDb()
@@ -1252,6 +1344,29 @@ app.post('/api/applications/:id/review', requireAuth, requireAdmin, async (req, 
   const category = db.categories.find(item => item.id === application.categoryId)
   const approvedScore = status === 'approved' ? clampScore(Number(req.body?.approvedScore), category?.maxScore || db.settings.weights.bonusCap) : 0
   const comment = String(req.body?.comment || '').trim()
+  if (status === 'rejected' && !comment) {
+    res.status(400).json({ ok: false, message: '驳回时必须填写复评意见，方便申报人修改材料' })
+    return
+  }
+  if (status === 'approved') {
+    if (approvedScore <= 0) {
+      res.status(400).json({ ok: false, message: '通过时复评分必须大于 0' })
+      return
+    }
+    const usedApprovedScore = db.applications
+      .filter(item => (
+        item.id !== application.id &&
+        item.studentId === application.studentId &&
+        item.categoryId === application.categoryId &&
+        item.status === 'approved'
+      ))
+      .reduce((sum, item) => sum + (Number(item.approvedScore) || 0), 0)
+    const remainingApprovedScore = roundScore(Math.max(0, Number(category?.maxScore || db.settings.weights.bonusCap) - usedApprovedScore))
+    if (approvedScore > remainingApprovedScore) {
+      res.status(400).json({ ok: false, message: `该评分项目剩余可认定 ${remainingApprovedScore} 分，请调整复评分` })
+      return
+    }
+  }
   const time = nowIso()
   application.status = status
   application.approvedScore = approvedScore
@@ -1266,8 +1381,14 @@ app.post('/api/applications/:id/review', requireAuth, requireAdmin, async (req, 
   apiOk(req, res, status === 'approved' ? '申报已通过' : '申报已驳回')
 })
 
+app.post('/api/backup', requireAuth, requireAdmin, async (req, res) => {
+  const backupPath = await createDataBackup(String(req.body?.reason || 'manual'))
+  apiOk(req, res, `数据已备份到 ${backupPath}`)
+})
+
 app.get('/api/export', requireAuth, requireAdmin, (_req, res) => {
   const payload = {
+    adminAccount: db.adminAccount,
     students: db.students,
     batches: db.batches,
     categories: db.categories,
@@ -1287,8 +1408,10 @@ app.post('/api/import-json', requireAuth, requireAdmin, async (req, res) => {
       res.status(400).json({ ok: false, message: '备份文件格式不正确' })
       return
     }
+    await createDataBackup('before-import')
     const sessions = db.sessions
-    db = await migrateDb({ ...parsed, sessions })
+    const adminAccount = parsed.adminAccount || db.adminAccount
+    db = await migrateDb({ ...parsed, adminAccount, sessions })
     await saveDb()
     apiOk(req, res, '数据已恢复')
   } catch {
@@ -1297,9 +1420,12 @@ app.post('/api/import-json', requireAuth, requireAdmin, async (req, res) => {
 })
 
 app.post('/api/reset-demo', requireAuth, requireAdmin, async (req, res) => {
+  await createDataBackup('before-reset-demo')
   const sessions = db.sessions
+  const adminAccount = db.adminAccount
   db = await createSeedData()
   db.sessions = sessions
+  db.adminAccount = adminAccount
   await saveDb()
   apiOk(req, res, '已恢复演示数据')
 })

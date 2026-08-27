@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { Download, Edit2, FileSpreadsheet, KeyRound, Lock, Plus, Search, Trash2, Unlock, Upload, X } from 'lucide-react'
+import { Copy, Download, Edit2, FileSpreadsheet, KeyRound, Lock, Plus, Search, Trash2, Unlock, Upload, X } from 'lucide-react'
 import { useStore } from '../store'
 import type { StudentProfile } from '../types'
 import { Badge, Button, EmptyState, FilterBar, PageHeader, Panel, StatCard } from '../components/ui'
@@ -169,6 +169,7 @@ export default function StudentManagement() {
   }
 
   const batchDelete = async () => {
+    if (!window.confirm(`确认删除选中的 ${selectedIds.size} 名申报人？相关申报记录也会被删除。`)) return
     await Promise.all(Array.from(selectedIds).map(id => deleteStudent(id)))
     setSelectedIds(new Set())
   }
@@ -192,8 +193,54 @@ export default function StudentManagement() {
     downloadCsv('申报人名单导出.csv', [header, ...rows])
   }
 
+  const exportInviteCodes = () => {
+    const source = students.filter(student => student.accountStatus === 'inactive' && student.inviteCode)
+    const header = ['姓名', '用户编号', '所属单位', '任教学科/岗位', '竞聘类别', '邀请码', '发放说明']
+    const rows = source.map(student => [
+      student.name,
+      student.studentId,
+      student.department,
+      student.major,
+      student.grade,
+      student.inviteCode ?? '',
+      '请打开正式系统，选择“邀请码激活”，输入用户编号和邀请码后设置登录密码。',
+    ])
+    downloadCsv('邀请码发放表.csv', [header, ...rows])
+  }
+
   const downloadTemplate = () => {
     downloadCsv('申报人名单导入模板.csv', studentTemplateRows)
+  }
+
+  const copyInviteCode = async (student: StudentProfile) => {
+    if (!student.inviteCode) return
+    const text = `${student.name} ${student.studentId} 邀请码：${student.inviteCode}`
+    try {
+      await navigator.clipboard.writeText(text)
+      setImportMessage(`${student.name}的邀请码已复制`)
+    } catch {
+      setImportMessage(text)
+    }
+  }
+
+  const handleResetPassword = async (student: StudentProfile) => {
+    if (!window.confirm(`确认重置 ${student.name} 的密码并重新生成邀请码？`)) return
+    const result = await resetUserPassword(student.id)
+    setImportMessage(`${student.name}：${result.message}`)
+  }
+
+  const handleToggleLock = async (student: StudentProfile) => {
+    const nextStatus = student.accountStatus === 'locked' ? 'inactive' : 'locked'
+    const action = nextStatus === 'locked' ? '锁定' : '解锁'
+    if (!window.confirm(`确认${action} ${student.name} 的账号？`)) return
+    const result = await updateUserAccountStatus(student.id, nextStatus)
+    setImportMessage(`${student.name}：${result.message}`)
+  }
+
+  const handleDeleteStudent = async (student: StudentProfile) => {
+    if (!window.confirm(`确认删除 ${student.name}？该申报人的申报记录也会一并删除。`)) return
+    const result = await deleteStudent(student.id)
+    setImportMessage(`${student.name}：${result.message}`)
   }
 
   return (
@@ -206,6 +253,10 @@ export default function StudentManagement() {
           <Button onClick={downloadTemplate} variant="secondary" className="flex-1 sm:flex-none">
             <FileSpreadsheet className="w-4 h-4" />
             下载模板
+          </Button>
+          <Button onClick={exportInviteCodes} variant="secondary" className="flex-1 sm:flex-none">
+            <KeyRound className="w-4 h-4" />
+            导出邀请码
           </Button>
           <Button onClick={() => fileRef.current?.click()} variant="secondary" className="flex-1 sm:flex-none">
             <Upload className="w-4 h-4" />
@@ -291,7 +342,14 @@ export default function StudentManagement() {
                 <p className="text-sm text-slate-700">{student.department || '未填写单位'}</p>
                 <p className="text-xs text-slate-500 mt-1">{student.major || '未填写任教学科/岗位'}</p>
                 {student.inviteCode && (
-                  <p className="text-xs text-blue-700 mt-2 font-medium">邀请码：{student.inviteCode}</p>
+                  <button
+                    type="button"
+                    onClick={() => void copyInviteCode(student)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-700"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    邀请码：{student.inviteCode}
+                  </button>
                 )}
                 <p className="text-xs text-slate-500 mt-2">
                   限制项：{student.failedCourses > 0 ? `${student.failedCourses} 项` : '无'}
@@ -301,20 +359,14 @@ export default function StudentManagement() {
 
               <div className="flex flex-wrap gap-2 mt-4">
                 <button
-                  onClick={async () => {
-                    const result = await resetUserPassword(student.id)
-                    setImportMessage(`${student.name}：${result.message}`)
-                  }}
+                  onClick={() => void handleResetPassword(student)}
                   className="inline-flex flex-1 items-center justify-center gap-1 h-9 px-3 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium"
                 >
                   <KeyRound className="w-4 h-4" />
                   重置
                 </button>
                 <button
-                  onClick={async () => {
-                    const result = await updateUserAccountStatus(student.id, student.accountStatus === 'locked' ? 'inactive' : 'locked')
-                    setImportMessage(`${student.name}：${result.message}`)
-                  }}
+                  onClick={() => void handleToggleLock(student)}
                   className="inline-flex flex-1 items-center justify-center gap-1 h-9 px-3 rounded-lg bg-slate-100 text-slate-600 text-sm font-medium"
                 >
                   {student.accountStatus === 'locked' ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
@@ -383,9 +435,14 @@ export default function StudentManagement() {
                   </td>
                   <td className="px-4 py-3 text-slate-600">
                     {student.inviteCode ? (
-                      <span className="font-mono text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded ring-1 ring-blue-100">
+                      <button
+                        type="button"
+                        onClick={() => void copyInviteCode(student)}
+                        className="inline-flex items-center gap-1 font-mono text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded ring-1 ring-blue-100 hover:bg-blue-100"
+                      >
+                        <Copy className="w-3 h-3" />
                         {student.inviteCode}
-                      </span>
+                      </button>
                     ) : (
                       <span className="text-xs text-slate-400">已激活</span>
                     )}
@@ -400,20 +457,14 @@ export default function StudentManagement() {
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
                       <button
-                        onClick={async () => {
-                          const result = await resetUserPassword(student.id)
-                          setImportMessage(`${student.name}：${result.message}`)
-                        }}
+                        onClick={() => void handleResetPassword(student)}
                         className="p-1.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50"
                         aria-label="重置密码"
                       >
                         <KeyRound className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={async () => {
-                          const result = await updateUserAccountStatus(student.id, student.accountStatus === 'locked' ? 'inactive' : 'locked')
-                          setImportMessage(`${student.name}：${result.message}`)
-                        }}
+                        onClick={() => void handleToggleLock(student)}
                         className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-500 hover:bg-slate-100"
                       >
                         {student.accountStatus === 'locked' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
@@ -427,10 +478,7 @@ export default function StudentManagement() {
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={async () => {
-                          const result = await deleteStudent(student.id)
-                          setImportMessage(`${student.name}：${result.message}`)
-                        }}
+                        onClick={() => void handleDeleteStudent(student)}
                         className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
                         aria-label="删除申报人"
                       >

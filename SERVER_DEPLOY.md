@@ -26,7 +26,7 @@ npm ci
 npm run build
 ```
 
-编辑 `deploy/ecosystem.config.cjs`，把 `ADMIN_PASSWORD` 改成正式强密码。
+编辑 `deploy/ecosystem.config.cjs`，把 `ADMIN_PASSWORD` 改成正式强密码。系统首次启动后会把管理员密码加密保存到数据文件里，之后管理员也可以在网页后台的“修改密码”中自行修改。
 
 ```bash
 pm2 start deploy/ecosystem.config.cjs
@@ -58,6 +58,7 @@ http://服务器IP/
 5. 用户登录后选择评分项目，填写自评分并上传证明图片。
 6. 管理员在“材料复评”中预览图片，通过、驳回或调整复评分。
 7. “排名结果”自动统计分项复评分和总分，可导出 CSV，Excel 可以直接打开。
+8. 管理员可在“评分规则”的“数据维护”里立即备份服务器数据。
 
 ## 重要配置
 
@@ -89,15 +90,28 @@ COOKIE_SECURE=false
 建议定期备份：
 
 ```bash
-tar -czf scoring-system-data-$(date +%F).tar.gz /var/www/scoring-system/data
+cd /var/www/scoring-system
+npm run backup:data -- manual
+```
+
+网页后台点击“立即备份”也会生成同样类型的备份目录。系统在导入备份或重置演示数据前，会自动先备份一次当前数据。
+
+如果管理员忘记后台密码，可以登录服务器后执行：
+
+```bash
+cd /var/www/scoring-system
+npm run reset:admin-password -- "新的强密码"
+pm2 restart scoring-system
 ```
 
 ## 更新代码
 
 ```bash
 cd /var/www/scoring-system
+cp -a data data-backup-$(date +%F-%H%M)
 git pull
 npm ci
 npm run build
 pm2 restart scoring-system
+pm2 save
 ```

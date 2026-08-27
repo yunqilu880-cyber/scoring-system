@@ -65,6 +65,7 @@ interface AppState extends StoredData {
   addApplication: (application: ApplicationInput) => Promise<ActionResult>
   deleteApplication: (id: string) => Promise<ActionResult>
   reviewApplication: (id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => Promise<ActionResult>
+  createBackup: () => Promise<ActionResult>
   exportData: () => Promise<void>
   importData: (raw: string) => Promise<ActionResult>
   resetDemoData: () => Promise<SystemSettings>
@@ -716,6 +717,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [categories, currentUser?.name, previewOk, runMutation])
 
+  const createBackup = useCallback(() => runMutation('/api/backup', {
+    method: 'POST',
+    body: JSON.stringify({ reason: 'manual' }),
+  }), [runMutation])
+
   const exportData = useCallback(async () => {
     if (isStaticPreview) {
       const blob = new Blob([JSON.stringify(currentState(), null, 2)], { type: 'application/json' })
@@ -810,6 +816,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     addApplication,
     deleteApplication,
     reviewApplication,
+    createBackup,
     exportData,
     importData,
     resetDemoData,

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, Clock3, FileSearch, Search, X, XCircle } from 'lucide-react'
+import { CheckCircle2, Clock3, Edit2, FileSearch, Search, X, XCircle } from 'lucide-react'
 import { useStore } from '../store'
 import type { ApplicationStatus, BonusApplication, BonusCategory, MaterialAttachment } from '../types'
 import { Badge, Button, EmptyState, FilterBar, PageHeader, StatCard } from '../components/ui'
@@ -142,6 +142,7 @@ export default function ReviewCenter() {
             <ReviewCard
               key={application.id}
               application={application}
+              allApplications={applications}
               batchName={batches.find(batch => batch.id === application.batchId)?.name ?? '默认批次'}
               category={getCategoryById(application.categoryId)}
               student={getStudentByStudentId(application.studentId)}
@@ -173,6 +174,7 @@ export default function ReviewCenter() {
 
 function ReviewCard({
   application,
+  allApplications,
   batchName,
   category,
   student,
@@ -180,18 +182,59 @@ function ReviewCard({
   onReview,
 }: {
   application: BonusApplication
+  allApplications: BonusApplication[]
   batchName: string
   category?: BonusCategory
   student?: ReturnType<typeof useStore>['students'][number]
   onPreview: (file: MaterialAttachment) => void
-  onReview: (id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => void
+  onReview: (id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => Promise<{ ok: boolean; message: string }>
 }) {
   const [score, setScore] = useState(String(application.approvedScore || application.requestedScore))
   const [comment, setComment] = useState(application.reviewComment ?? '')
+  const [message, setMessage] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [isEditing, setIsEditing] = useState(application.status === 'pending')
   const categoryMaxScore = category?.maxScore ?? 0
+  const approvedByOthers = allApplications
+    .filter(item => (
+      item.id !== application.id &&
+      item.studentId === application.studentId &&
+      item.categoryId === application.categoryId &&
+      item.status === 'approved'
+    ))
+    .reduce((sum, item) => sum + item.approvedScore, 0)
+  const remainingReviewScore = Math.max(0, categoryMaxScore - approvedByOthers)
 
-  const approve = () => onReview(application.id, 'approved', Number(score), comment)
-  const reject = () => onReview(application.id, 'rejected', 0, comment || '材料不符合评分细则要求')
+  const approve = async () => {
+    const numericScore = Number(score)
+    if (!Number.isFinite(numericScore) || numericScore <= 0) {
+      setMessage('通过时复评分必须大于 0')
+      return
+    }
+    if (numericScore > remainingReviewScore) {
+      setMessage(`该评分项目剩余可认定 ${remainingReviewScore.toFixed(2)} 分，请调整复评分`)
+      return
+    }
+    if (!window.confirm(`确认通过该申报并认定 ${numericScore} 分？`)) return
+    setSubmitting(true)
+    const result = await onReview(application.id, 'approved', numericScore, comment)
+    setSubmitting(false)
+    setMessage(result.message)
+    if (result.ok) setIsEditing(false)
+  }
+
+  const reject = async () => {
+    if (!comment.trim()) {
+      setMessage('驳回时必须填写复评意见')
+      return
+    }
+    if (!window.confirm('确认驳回该申报？驳回原因会展示给申报人。')) return
+    setSubmitting(true)
+    const result = await onReview(application.id, 'rejected', 0, comment.trim())
+    setSubmitting(false)
+    setMessage(result.message)
+    if (result.ok) setIsEditing(false)
+  }
 
   return (
     <article className={`relative bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm transition-all before:absolute before:inset-y-0 before:left-0 before:w-1 hover:-translate-y-0.5 hover:shadow-md ${statusAccentStyles[application.status]}`}>
@@ -218,7 +261,7 @@ function ReviewCard({
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-2 min-w-56">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-56">
             <div className="rounded-lg bg-amber-50/60 border border-amber-100 p-3">
               <p className="text-xs text-slate-500">自评</p>
               <p className="text-xl font-bold text-slate-900">{application.requestedScore}</p>
@@ -230,6 +273,10 @@ function ReviewCard({
             <div className="rounded-lg bg-blue-50/70 border border-blue-100 p-3">
               <p className="text-xs text-slate-500">复评</p>
               <p className="text-xl font-bold text-indigo-600">{application.status === 'approved' ? application.approvedScore : '-'}</p>
+            </div>
+            <div className="rounded-lg bg-emerald-50/70 border border-emerald-100 p-3">
+              <p className="text-xs text-slate-500">剩余</p>
+              <p className="text-xl font-bold text-emerald-600">{remainingReviewScore.toFixed(2)}</p>
             </div>
           </div>
         </div>
@@ -253,7 +300,7 @@ function ReviewCard({
           </div>
         )}
 
-        {application.status === 'pending' ? (
+        {isEditing ? (
           <div className="mt-5 rounded-lg bg-slate-50/80 border border-slate-200 p-3 grid lg:grid-cols-[150px_1fr_auto] gap-3 items-start">
             <label className="block">
               <span className="block text-xs font-medium text-slate-500 mb-1">复评分数</span>
@@ -261,7 +308,7 @@ function ReviewCard({
                 type="number"
                 min="0"
                 step="0.01"
-                max={categoryMaxScore}
+                max={remainingReviewScore}
                 value={score}
                 onChange={event => setScore(event.target.value)}
                 className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -279,31 +326,45 @@ function ReviewCard({
             <div className="flex flex-wrap gap-2 lg:pt-5">
               <Button
                 type="button"
-                onClick={approve}
+                onClick={() => void approve()}
                 variant="success"
                 className="flex-1 sm:flex-none"
+                disabled={submitting}
               >
                 <CheckCircle2 className="w-4 h-4" />
                 通过
               </Button>
               <Button
                 type="button"
-                onClick={reject}
+                onClick={() => void reject()}
                 variant="danger"
                 className="flex-1 sm:flex-none"
+                disabled={submitting}
               >
                 <XCircle className="w-4 h-4" />
                 驳回
               </Button>
             </div>
+            {message && (
+              <p className={`lg:col-span-3 text-sm ${message.includes('已') ? 'text-emerald-700' : 'text-red-600'}`}>
+                {message}
+              </p>
+            )}
           </div>
         ) : (
           <div className="mt-5 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm text-slate-600">
-            <div className="flex items-center gap-2 text-slate-500 mb-1">
-              <Clock3 className="w-4 h-4" />
-              {application.reviewerName ?? '管理员'} · {formatDate(application.reviewedAt)}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-slate-500">
+                <Clock3 className="w-4 h-4" />
+                {application.reviewerName ?? '管理员'} · {formatDate(application.reviewedAt)}
+              </div>
+              <Button type="button" size="sm" variant="secondary" onClick={() => setIsEditing(true)}>
+                <Edit2 className="w-4 h-4" />
+                修改复评
+              </Button>
             </div>
-            <p>{application.reviewComment || '无复评意见'}</p>
+            <p className="mt-2">{application.reviewComment || '无复评意见'}</p>
+            {message && <p className="mt-2 text-emerald-700">{message}</p>}
           </div>
         )}
 
