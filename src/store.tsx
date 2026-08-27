@@ -13,6 +13,7 @@ import type {
   SystemSettings,
   UserRole,
 } from './types'
+import { previewState } from './previewData'
 
 interface StoredData {
   students: StudentProfile[]
@@ -94,6 +95,70 @@ const emptyData: StoredData = {
 }
 
 const AppContext = createContext<AppState | null>(null)
+const previewUserKey = 'scoring-system-preview-user'
+
+export const isStaticPreview = typeof window !== 'undefined' && (
+  window.location.hostname.endsWith('github.io') ||
+  window.location.search.includes('preview=1')
+)
+
+const cloneData = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+const makePreviewState = (): StoredData => cloneData(previewState)
+
+const makePreviewInviteCode = (studentId: string) => `SR-DEMO-${studentId.slice(-4) || '0000'}`
+
+const createPreviewUser = (role: UserRole, sourceStudents: StudentProfile[], username = ''): CurrentUser | null => {
+  if (role === 'admin') {
+    return {
+      id: 'preview-admin',
+      role: 'admin',
+      name: '审核端预览',
+      username: 'preview-admin',
+      mustChangePassword: false,
+    }
+  }
+
+  const student = sourceStudents.find(item => item.studentId === username && item.accountStatus !== 'locked')
+    ?? sourceStudents.find(item => item.accountStatus === 'active')
+    ?? sourceStudents[0]
+
+  if (!student) return null
+  return {
+    id: student.id,
+    role: 'student',
+    name: student.name,
+    username: student.studentId,
+    studentId: student.studentId,
+    mustChangePassword: false,
+  }
+}
+
+const readPreviewUser = (sourceStudents: StudentProfile[]) => {
+  if (!isStaticPreview) return null
+  try {
+    const raw = window.localStorage.getItem(previewUserKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as CurrentUser
+    if (parsed.role === 'admin') return parsed
+    if (parsed.role === 'student' && parsed.studentId && sourceStudents.some(student => student.studentId === parsed.studentId)) {
+      return parsed
+    }
+  } catch {
+    window.localStorage.removeItem(previewUserKey)
+  }
+  return null
+}
+
+const writePreviewUser = (user: CurrentUser | null) => {
+  if (!isStaticPreview) return
+  if (user) window.localStorage.setItem(previewUserKey, JSON.stringify(user))
+  else window.localStorage.removeItem(previewUserKey)
+}
+
+const initialData = isStaticPreview ? makePreviewState() : emptyData
+const initialUser = isStaticPreview
+  ? readPreviewUser(initialData.students) ?? createPreviewUser('admin', initialData.students)
+  : null
 
 const apiRequest = async <T,>(url: string, options: RequestInit = {}): Promise<T> => {
   const hasBody = typeof options.body !== 'undefined'
@@ -216,13 +281,13 @@ const fallbackResult = (error: unknown): ActionResult => ({
 })
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [students, setStudents] = useState<StudentProfile[]>(emptyData.students)
-  const [batches, setBatches] = useState<ApplicationBatch[]>(emptyData.batches)
-  const [categories, setCategories] = useState<BonusCategory[]>(emptyData.categories)
-  const [applications, setApplications] = useState<BonusApplication[]>(emptyData.applications)
-  const [settings, setSettings] = useState<SystemSettings>(emptyData.settings)
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [students, setStudents] = useState<StudentProfile[]>(initialData.students)
+  const [batches, setBatches] = useState<ApplicationBatch[]>(initialData.batches)
+  const [categories, setCategories] = useState<BonusCategory[]>(initialData.categories)
+  const [applications, setApplications] = useState<BonusApplication[]>(initialData.applications)
+  const [settings, setSettings] = useState<SystemSettings>(initialData.settings)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(initialUser)
+  const [isLoading, setIsLoading] = useState(!isStaticPreview)
 
   const applyState = useCallback((state?: StoredData | null) => {
     if (!state) return
@@ -240,6 +305,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [applyState])
 
   useEffect(() => {
+    if (isStaticPreview) return undefined
+
     let active = true
     apiRequest<ActionResult>('/api/auth/me')
       .then(result => {
@@ -272,7 +339,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     rankings.find(row => row.studentId === studentId)
   ), [rankings])
 
+  const currentState = useCallback((): StoredData => ({
+    students,
+    batches,
+    categories,
+    applications,
+    settings,
+  }), [students, batches, categories, applications, settings])
+
+  const previewOk = useCallback((message: string, user: CurrentUser | null = currentUser): ActionResult => ({
+    ok: true,
+    message,
+    currentUser: user,
+    state: currentState(),
+  }), [currentState, currentUser])
+
   const login = useCallback(async (role: UserRole, username: string, password: string) => {
+    if (isStaticPreview) {
+      const user = createPreviewUser(role, students, username)
+      if (!user) return { ok: false, message: '预览数据中没有可用账号' }
+      setCurrentUser(user)
+      writePreviewUser(user)
+      return { ok: true, message: '已进入 GitHub 预览模式', currentUser: user, state: currentState() }
+    }
+
     try {
       const result = await apiRequest<ActionResult>('/api/auth/login', {
         method: 'POST',
@@ -282,9 +372,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       return fallbackResult(error)
     }
-  }, [applyResult])
+  }, [applyResult, currentState, students])
 
   const activateWithInvite = useCallback(async (studentId: string, inviteCode: string, password: string) => {
+    if (isStaticPreview) {
+      if (!password.trim()) return { ok: false, message: '请先设置登录密码' }
+      const student = students.find(item => item.studentId === studentId && item.accountStatus !== 'locked')
+      if (!student) return { ok: false, message: '没有找到可激活的预览用户' }
+      const expectedCode = student.inviteCode ?? makePreviewInviteCode(student.studentId)
+      if (inviteCode.trim() && inviteCode.trim() !== expectedCode) {
+        return { ok: false, message: `预览模式邀请码可填写 ${expectedCode}` }
+      }
+      const nextStudent = {
+        ...student,
+        accountStatus: 'active' as AccountStatus,
+        password,
+        inviteCode: undefined,
+        inviteUsedAt: new Date().toISOString(),
+        activatedAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+        mustChangePassword: false,
+      }
+      setStudents(prev => prev.map(item => item.id === student.id ? nextStudent : item))
+      const user = createPreviewUser('student', [nextStudent], nextStudent.studentId)
+      setCurrentUser(user)
+      writePreviewUser(user)
+      return { ok: true, message: '已在预览模式完成激活', currentUser: user, state: currentState() }
+    }
+
     try {
       const result = await apiRequest<ActionResult>('/api/auth/activate', {
         method: 'POST',
@@ -294,9 +409,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       return fallbackResult(error)
     }
-  }, [applyResult])
+  }, [applyResult, currentState, students])
 
   const logout = useCallback(async () => {
+    if (isStaticPreview) {
+      setCurrentUser(null)
+      writePreviewUser(null)
+      return
+    }
+
     try {
       await apiRequest<ActionResult>('/api/auth/logout', { method: 'POST' })
     } finally {
@@ -306,6 +427,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [applyState])
 
   const changePassword = useCallback(async (oldPassword: string, newPassword: string) => {
+    if (isStaticPreview) {
+      if (!oldPassword || !newPassword) return { ok: false, message: '请填写原密码和新密码' }
+      return previewOk('预览模式已模拟修改密码')
+    }
+
     try {
       const result = await apiRequest<ActionResult>('/api/auth/change-password', {
         method: 'POST',
@@ -315,93 +441,293 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       return fallbackResult(error)
     }
-  }, [applyResult])
+  }, [applyResult, previewOk])
 
   const runMutation = useCallback(async (url: string, options: RequestInit = {}) => {
+    if (isStaticPreview) return previewOk('GitHub 预览模式仅临时演示，不会保存到服务器')
+
     try {
       const result = await apiRequest<ActionResult>(url, options)
       return applyResult(result)
     } catch (error) {
       return fallbackResult(error)
     }
-  }, [applyResult])
+  }, [applyResult, previewOk])
 
-  const addStudent = useCallback((student: StudentProfile) => runMutation('/api/students', {
-    method: 'POST',
-    body: JSON.stringify({ student }),
-  }), [runMutation])
+  const addStudent = useCallback((student: StudentProfile) => {
+    if (isStaticPreview) {
+      const nextStudent = {
+        ...student,
+        id: student.id || `stu-preview-${Date.now()}`,
+        accountStatus: student.accountStatus || 'inactive',
+        inviteCode: student.accountStatus === 'active' ? undefined : student.inviteCode ?? makePreviewInviteCode(student.studentId),
+      }
+      setStudents(prev => [...prev.filter(item => item.studentId !== nextStudent.studentId), nextStudent])
+      return Promise.resolve(previewOk('预览模式已新增申报人'))
+    }
 
-  const updateStudent = useCallback((student: StudentProfile) => runMutation(`/api/students/${student.id}`, {
-    method: 'PUT',
-    body: JSON.stringify({ student }),
-  }), [runMutation])
+    return runMutation('/api/students', {
+      method: 'POST',
+      body: JSON.stringify({ student }),
+    })
+  }, [previewOk, runMutation])
 
-  const deleteStudent = useCallback((id: string) => runMutation(`/api/students/${id}`, {
-    method: 'DELETE',
-  }), [runMutation])
+  const updateStudent = useCallback((student: StudentProfile) => {
+    if (isStaticPreview) {
+      setStudents(prev => prev.map(item => item.id === student.id ? student : item))
+      return Promise.resolve(previewOk('预览模式已更新申报人'))
+    }
 
-  const importStudents = useCallback((nextStudents: StudentProfile[]) => runMutation('/api/students/import', {
-    method: 'POST',
-    body: JSON.stringify({ students: nextStudents }),
-  }), [runMutation])
+    return runMutation(`/api/students/${student.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ student }),
+    })
+  }, [previewOk, runMutation])
 
-  const resetUserPassword = useCallback((id: string) => runMutation(`/api/students/${id}/reset-password`, {
-    method: 'POST',
-  }), [runMutation])
+  const deleteStudent = useCallback((id: string) => {
+    if (isStaticPreview) {
+      const removed = students.find(student => student.id === id)
+      setStudents(prev => prev.filter(student => student.id !== id))
+      if (removed) setApplications(prev => prev.filter(application => application.studentId !== removed.studentId))
+      return Promise.resolve(previewOk('预览模式已删除申报人'))
+    }
 
-  const updateUserAccountStatus = useCallback((id: string, status: AccountStatus) => runMutation(`/api/students/${id}/status`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-  }), [runMutation])
+    return runMutation(`/api/students/${id}`, {
+      method: 'DELETE',
+    })
+  }, [previewOk, runMutation, students])
 
-  const addBatch = useCallback((batch: ApplicationBatch) => runMutation('/api/batches', {
-    method: 'POST',
-    body: JSON.stringify({ batch }),
-  }), [runMutation])
+  const importStudents = useCallback((nextStudents: StudentProfile[]) => {
+    if (isStaticPreview) {
+      setStudents(prev => {
+        const byStudentId = new Map(prev.map(student => [student.studentId, student]))
+        nextStudents.forEach(student => {
+          byStudentId.set(student.studentId, {
+            ...student,
+            id: student.id || `stu-preview-${Date.now()}-${student.studentId}`,
+            accountStatus: 'inactive',
+            inviteCode: makePreviewInviteCode(student.studentId),
+            mustChangePassword: true,
+          })
+        })
+        return Array.from(byStudentId.values())
+      })
+      return Promise.resolve(previewOk(`预览模式已导入或更新 ${nextStudents.length} 名申报人`))
+    }
 
-  const updateBatch = useCallback((batch: ApplicationBatch) => runMutation(`/api/batches/${batch.id}`, {
-    method: 'PUT',
-    body: JSON.stringify({ batch }),
-  }), [runMutation])
+    return runMutation('/api/students/import', {
+      method: 'POST',
+      body: JSON.stringify({ students: nextStudents }),
+    })
+  }, [previewOk, runMutation])
 
-  const deleteBatch = useCallback((id: string) => runMutation(`/api/batches/${id}`, {
-    method: 'DELETE',
-  }), [runMutation])
+  const resetUserPassword = useCallback((id: string) => {
+    if (isStaticPreview) {
+      setStudents(prev => prev.map(student => student.id === id
+        ? {
+            ...student,
+            accountStatus: 'inactive',
+            password: '123456',
+            mustChangePassword: true,
+            inviteCode: makePreviewInviteCode(student.studentId),
+          }
+        : student))
+      return Promise.resolve(previewOk('预览模式已重置邀请码'))
+    }
 
-  const addCategory = useCallback((category: BonusCategory) => runMutation('/api/categories', {
-    method: 'POST',
-    body: JSON.stringify({ category }),
-  }), [runMutation])
+    return runMutation(`/api/students/${id}/reset-password`, {
+      method: 'POST',
+    })
+  }, [previewOk, runMutation])
 
-  const updateCategory = useCallback((category: BonusCategory) => runMutation(`/api/categories/${category.id}`, {
-    method: 'PUT',
-    body: JSON.stringify({ category }),
-  }), [runMutation])
+  const updateUserAccountStatus = useCallback((id: string, status: AccountStatus) => {
+    if (isStaticPreview) {
+      setStudents(prev => prev.map(student => student.id === id ? { ...student, accountStatus: status } : student))
+      return Promise.resolve(previewOk('预览模式已更新账号状态'))
+    }
 
-  const deleteCategory = useCallback((id: string) => runMutation(`/api/categories/${id}`, {
-    method: 'DELETE',
-  }), [runMutation])
+    return runMutation(`/api/students/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    })
+  }, [previewOk, runMutation])
 
-  const updateSettings = useCallback((nextSettings: SystemSettings) => runMutation('/api/settings', {
-    method: 'PUT',
-    body: JSON.stringify({ settings: nextSettings }),
-  }), [runMutation])
+  const addBatch = useCallback((batch: ApplicationBatch) => {
+    if (isStaticPreview) {
+      setBatches(prev => [...prev.filter(item => item.id !== batch.id), { ...batch, id: batch.id || `batch-preview-${Date.now()}` }])
+      return Promise.resolve(previewOk('预览模式已添加批次'))
+    }
 
-  const addApplication = useCallback((application: ApplicationInput) => runMutation('/api/applications', {
-    method: 'POST',
-    body: JSON.stringify({ application }),
-  }), [runMutation])
+    return runMutation('/api/batches', {
+      method: 'POST',
+      body: JSON.stringify({ batch }),
+    })
+  }, [previewOk, runMutation])
 
-  const deleteApplication = useCallback((id: string) => runMutation(`/api/applications/${id}`, {
-    method: 'DELETE',
-  }), [runMutation])
+  const updateBatch = useCallback((batch: ApplicationBatch) => {
+    if (isStaticPreview) {
+      setBatches(prev => prev.map(item => item.id === batch.id ? batch : item))
+      return Promise.resolve(previewOk('预览模式已更新批次'))
+    }
 
-  const reviewApplication = useCallback((id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => runMutation(`/api/applications/${id}/review`, {
-    method: 'POST',
-    body: JSON.stringify({ status, approvedScore, comment }),
-  }), [runMutation])
+    return runMutation(`/api/batches/${batch.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ batch }),
+    })
+  }, [previewOk, runMutation])
+
+  const deleteBatch = useCallback((id: string) => {
+    if (isStaticPreview) {
+      setBatches(prev => prev.filter(batch => batch.id !== id))
+      return Promise.resolve(previewOk('预览模式已删除批次'))
+    }
+
+    return runMutation(`/api/batches/${id}`, {
+      method: 'DELETE',
+    })
+  }, [previewOk, runMutation])
+
+  const addCategory = useCallback((category: BonusCategory) => {
+    if (isStaticPreview) {
+      setCategories(prev => [...prev.filter(item => item.id !== category.id), { ...category, id: category.id || `cat-preview-${Date.now()}` }])
+      return Promise.resolve(previewOk('预览模式已添加评分项目'))
+    }
+
+    return runMutation('/api/categories', {
+      method: 'POST',
+      body: JSON.stringify({ category }),
+    })
+  }, [previewOk, runMutation])
+
+  const updateCategory = useCallback((category: BonusCategory) => {
+    if (isStaticPreview) {
+      setCategories(prev => prev.map(item => item.id === category.id ? category : item))
+      return Promise.resolve(previewOk('预览模式已更新评分项目'))
+    }
+
+    return runMutation(`/api/categories/${category.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ category }),
+    })
+  }, [previewOk, runMutation])
+
+  const deleteCategory = useCallback((id: string) => {
+    if (isStaticPreview) {
+      setCategories(prev => prev.filter(category => category.id !== id))
+      return Promise.resolve(previewOk('预览模式已删除评分项目'))
+    }
+
+    return runMutation(`/api/categories/${id}`, {
+      method: 'DELETE',
+    })
+  }, [previewOk, runMutation])
+
+  const updateSettings = useCallback((nextSettings: SystemSettings) => {
+    if (isStaticPreview) {
+      setSettings(nextSettings)
+      return Promise.resolve(previewOk('预览模式已保存评分规则'))
+    }
+
+    return runMutation('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ settings: nextSettings }),
+    })
+  }, [previewOk, runMutation])
+
+  const addApplication = useCallback((application: ApplicationInput) => {
+    if (isStaticPreview) {
+      const student = students.find(item => item.studentId === application.studentId)
+      const year = settings.academicYear.match(/\d{4}/)?.[0] ?? new Date().getFullYear().toString()
+      const sequence = applications.length + 1
+      const nextApplication: BonusApplication = {
+        id: `app-preview-${Date.now()}`,
+        applicationNo: `SQ-${year}-${String(sequence).padStart(4, '0')}`,
+        ...application,
+        requestedScore: roundScore(application.requestedScore),
+        approvedScore: 0,
+        status: 'pending',
+        reviewLogs: [
+          {
+            id: `log-preview-submit-${Date.now()}`,
+            action: 'submitted',
+            actorName: student?.name ?? '预览用户',
+            comment: '提交申报材料',
+            score: roundScore(application.requestedScore),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        submittedAt: new Date().toISOString(),
+      }
+      setApplications(prev => [nextApplication, ...prev])
+      return Promise.resolve(previewOk('预览模式已提交申报，刷新后恢复演示数据'))
+    }
+
+    return runMutation('/api/applications', {
+      method: 'POST',
+      body: JSON.stringify({ application }),
+    })
+  }, [applications.length, previewOk, runMutation, settings.academicYear, students])
+
+  const deleteApplication = useCallback((id: string) => {
+    if (isStaticPreview) {
+      setApplications(prev => prev.filter(application => application.id !== id))
+      return Promise.resolve(previewOk('预览模式已删除申报'))
+    }
+
+    return runMutation(`/api/applications/${id}`, {
+      method: 'DELETE',
+    })
+  }, [previewOk, runMutation])
+
+  const reviewApplication = useCallback((id: string, status: 'approved' | 'rejected', approvedScore: number, comment: string) => {
+    if (isStaticPreview) {
+      setApplications(prev => prev.map(application => {
+        if (application.id !== id) return application
+        const category = categories.find(item => item.id === application.categoryId)
+        const score = status === 'approved'
+          ? roundScore(Math.min(Math.max(approvedScore, 0), category?.maxScore ?? approvedScore))
+          : 0
+        return {
+          ...application,
+          status,
+          approvedScore: score,
+          reviewedAt: new Date().toISOString(),
+          reviewerName: currentUser?.name ?? '审核端预览',
+          reviewComment: comment,
+          reviewLogs: [
+            ...application.reviewLogs,
+            {
+              id: `log-preview-review-${Date.now()}`,
+              action: status,
+              actorName: currentUser?.name ?? '审核端预览',
+              comment: comment || (status === 'approved' ? '预览模式复评通过' : '材料不符合评分细则要求'),
+              score,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }
+      }))
+      return Promise.resolve(previewOk('预览模式已更新复评结果'))
+    }
+
+    return runMutation(`/api/applications/${id}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ status, approvedScore, comment }),
+    })
+  }, [categories, currentUser?.name, previewOk, runMutation])
 
   const exportData = useCallback(async () => {
+    if (isStaticPreview) {
+      const blob = new Blob([JSON.stringify(currentState(), null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `评分系统预览数据-${new Date().toISOString().slice(0, 10)}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+
     const response = await fetch('/api/export', { credentials: 'include' })
     if (!response.ok) throw new Error('导出失败')
     const blob = await response.blob()
@@ -411,9 +737,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     link.download = `评分系统数据备份-${new Date().toISOString().slice(0, 10)}.json`
     link.click()
     URL.revokeObjectURL(url)
-  }, [])
+  }, [currentState])
 
   const importData = useCallback(async (raw: string) => {
+    if (isStaticPreview) {
+      try {
+        const parsed = JSON.parse(raw) as Partial<StoredData>
+        const nextState: StoredData = {
+          students: parsed.students || [],
+          batches: parsed.batches || [],
+          categories: parsed.categories || [],
+          applications: parsed.applications || [],
+          settings: parsed.settings || emptySettings,
+        }
+        applyState(nextState)
+        return { ok: true, message: '预览模式已导入备份数据', state: nextState, settings: nextState.settings }
+      } catch {
+        return { ok: false, message: '备份文件格式不正确' }
+      }
+    }
+
     try {
       const result = await apiRequest<ActionResult>('/api/import-json', {
         method: 'POST',
@@ -424,13 +767,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       return fallbackResult(error)
     }
-  }, [applyResult])
+  }, [applyResult, applyState])
 
   const resetDemoData = useCallback(async () => {
+    if (isStaticPreview) {
+      const nextState = makePreviewState()
+      applyState(nextState)
+      return nextState.settings
+    }
+
     const result = await apiRequest<ActionResult>('/api/reset-demo', { method: 'POST' })
     applyResult(result)
     return result.state?.settings || emptySettings
-  }, [applyResult])
+  }, [applyResult, applyState])
 
   const value: AppState = {
     students,

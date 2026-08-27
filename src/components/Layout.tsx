@@ -11,7 +11,7 @@ import {
   Trophy,
   Users,
 } from 'lucide-react'
-import { useStore } from '../store'
+import { isStaticPreview, useStore } from '../store'
 
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -122,6 +122,11 @@ export default function Layout() {
         </div>
 
         <div className="p-3 sm:p-4 lg:p-6 flex-1">
+          {isStaticPreview && (
+            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-blue-800 shadow-sm">
+              GitHub 预览模式：当前使用浏览器演示数据，方便查看界面和流程；正式登录、上传和数据保存请使用服务器地址。
+            </div>
+          )}
           <Outlet />
         </div>
       </main>

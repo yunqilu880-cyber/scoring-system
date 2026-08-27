@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { KeyRound, ShieldCheck, UserRound } from 'lucide-react'
-import { useStore } from '../store'
+import { isStaticPreview, useStore } from '../store'
 import type { UserRole } from '../types'
 
 type LoginMode = 'login' | 'activate'
@@ -79,6 +79,18 @@ export default function LoginPage() {
     navigate('/submit', { replace: true })
   }
 
+  const handlePreview = async (previewRole: UserRole) => {
+    setSubmitting(true)
+    setError('')
+    const result = await login(previewRole, previewRole === 'student' ? 'JS2026002' : 'preview-admin', 'preview')
+    setSubmitting(false)
+    if (!result.ok) {
+      setError(result.message)
+      return
+    }
+    navigate(previewRole === 'student' ? '/submit' : '/', { replace: true })
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSubmitting(true)
@@ -101,6 +113,35 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-slate-900">评分系统</h1>
           <p className="mt-2 text-sm text-slate-500">请选择身份并完成登录</p>
         </div>
+
+        {isStaticPreview && (
+          <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+            <p className="text-sm font-semibold text-slate-900">GitHub 预览模式</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              当前页面只用于研究界面和流程，不连接正式服务器，预览操作刷新后会恢复演示数据。
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => void handlePreview('admin')}
+                disabled={submitting}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700 disabled:opacity-60"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                审核端预览
+              </button>
+              <button
+                type="button"
+                onClick={() => void handlePreview('student')}
+                disabled={submitting}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-white px-3 text-sm font-semibold text-blue-700 ring-1 ring-blue-200 transition-colors hover:bg-blue-50 disabled:opacity-60"
+              >
+                <UserRound className="h-4 w-4" />
+                用户端预览
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg bg-blue-50 p-1">
           <button
