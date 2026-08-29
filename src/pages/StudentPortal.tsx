@@ -1,9 +1,11 @@
-﻿import { useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { CalendarClock, FileImage, Send, Trash2, UploadCloud, X } from 'lucide-react'
 import { useStore } from '../store'
-import type { BonusApplication, MaterialAttachment } from '../types'
+import type { BonusApplication, MaterialAttachment, ScoreCalculationSnapshot } from '../types'
 import { Badge, Button, EmptyState, PageHeader, Panel, SectionHeader, StatCard } from '../components/ui'
+import ScoreRuleCalculator from '../components/ScoreRuleCalculator'
+import { getScoreRule } from '../scoringRules'
 
 const statusLabels = {
   pending: '待复评',
@@ -74,6 +76,7 @@ export default function StudentPortal() {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [requestedScore, setRequestedScore] = useState<number | null>(null)
+  const [calculation, setCalculation] = useState<ScoreCalculationSnapshot | null>(null)
   const [attachments, setAttachments] = useState<MaterialAttachment[]>([])
   const [message, setMessage] = useState('')
   const [preview, setPreview] = useState<MaterialAttachment | null>(null)
@@ -96,7 +99,8 @@ export default function StudentPortal() {
   const effectiveCategoryId = activeCategories.some(category => category.id === categoryId) ? categoryId : firstActiveCategory?.id ?? ''
   const selectedCategory = getCategoryById(effectiveCategoryId)
   const selectedBatch = activeBatches.find(batch => batch.id === effectiveBatchId)
-  const effectiveRequestedScore = requestedScore ?? selectedCategory?.defaultScore ?? 0
+  const selectedRule = getScoreRule(effectiveCategoryId)
+  const effectiveRequestedScore = selectedRule ? calculation?.score ?? 0 : requestedScore ?? selectedCategory?.defaultScore ?? 0
   const selectedCategoryApplications = myApplications.filter(application => (
     application.categoryId === effectiveCategoryId && application.status !== 'rejected'
   ))
@@ -110,7 +114,12 @@ export default function StudentPortal() {
     const nextCategory = getCategoryById(nextCategoryId)
     setCategoryId(nextCategoryId)
     setRequestedScore(nextCategory?.defaultScore ?? 0)
+    setCalculation(null)
   }
+
+  const handleCalculationChange = useCallback((nextCalculation: ScoreCalculationSnapshot | null) => {
+    setCalculation(nextCalculation)
+  }, [])
 
   const handleFiles = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
@@ -170,6 +179,7 @@ export default function StudentPortal() {
       title: title.trim(),
       description: description.trim(),
       requestedScore: effectiveRequestedScore,
+      calculation: calculation ?? undefined,
       attachments,
     })
     setSubmitting(false)
@@ -181,6 +191,7 @@ export default function StudentPortal() {
     setDescription('')
     setAttachments([])
     setRequestedScore(null)
+    setCalculation(null)
     setMessage('申报已提交，等待复评')
   }
 
@@ -297,24 +308,32 @@ export default function StudentPortal() {
               />
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="block text-sm font-medium text-slate-700 mb-1">自评分</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  max={selectedCategory?.maxScore}
-                  value={effectiveRequestedScore}
-                  onChange={event => setRequestedScore(Number(event.target.value))}
-                  className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </label>
-              <div className="rounded-lg bg-blue-50/60 border border-blue-100 p-3">
-                <p className="text-xs text-slate-500">本项满分</p>
-                <p className="text-lg font-bold text-slate-900">{selectedCategory?.maxScore ?? 0} 分</p>
+            {selectedRule && selectedCategory ? (
+              <ScoreRuleCalculator
+                categoryId={effectiveCategoryId}
+                maxScore={selectedCategory.maxScore}
+                onChange={handleCalculationChange}
+              />
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-sm font-medium text-slate-700 mb-1">自评分</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    max={selectedCategory?.maxScore}
+                    value={effectiveRequestedScore}
+                    onChange={event => setRequestedScore(Number(event.target.value))}
+                    className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </label>
+                <div className="rounded-lg bg-blue-50/60 border border-blue-100 p-3">
+                  <p className="text-xs text-slate-500">本项满分</p>
+                  <p className="text-lg font-bold text-slate-900">{selectedCategory?.maxScore ?? 0} 分</p>
+                </div>
               </div>
-            </div>
+            )}
 
             <label className="block">
               <span className="block text-sm font-medium text-slate-700 mb-1">申报说明</span>
@@ -370,7 +389,7 @@ export default function StudentPortal() {
               disabled={submitting || activeBatches.length === 0 || selectedCategoryRemainingSelf <= 0}
             >
               <Send className="w-4 h-4" />
-              {submitting ? '提交中...' : '提交复评'}
+              {submitting ? '提交中...' : '提交申报'}
             </Button>
           </div>
         </form>
@@ -442,6 +461,11 @@ function ApplicationItem({
           </div>
           <p className="text-sm text-slate-500 mt-1">{batchName} · {categoryName} · 自评 {application.requestedScore} 分</p>
           {application.description && <p className="text-sm text-slate-600 mt-3 leading-6">{application.description}</p>}
+          {application.calculation && (
+            <div className="text-sm text-slate-600 mt-3 px-3 py-2 bg-blue-50/70 rounded-lg border border-blue-100">
+              <span className="font-medium text-blue-800">计分过程：</span>{application.calculation.summary}
+            </div>
+          )}
           {application.reviewComment && (
             <p className="text-sm text-slate-600 mt-3 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
               复评意见：{application.reviewComment}

@@ -83,6 +83,15 @@ export interface MaterialAttachment {
   uploadedAt: string
 }
 
+export interface ScoreCalculationSnapshot {
+  ruleId: string
+  ruleName: string
+  score: number
+  summary: string
+  fields: Record<string, string | number | boolean>
+  warnings: string[]
+}
+
 export interface ApplicationReviewLog {
   id: string
   action: ApplicationReviewAction
@@ -104,6 +113,7 @@ export interface BonusApplication {
   approvedScore: number
   status: ApplicationStatus
   attachments: MaterialAttachment[]
+  calculation?: ScoreCalculationSnapshot
   reviewLogs: ApplicationReviewLog[]
   submittedAt: string
   reviewedAt?: string

@@ -75,6 +75,25 @@ const makeInviteCode = () => {
 const roundScore = value => Math.round(value * 100) / 100
 const clampScore = (value, max) => Math.max(0, Math.min(Number.isFinite(value) ? value : 0, max))
 
+const sanitizeCalculation = calculation => {
+  if (!calculation || typeof calculation !== 'object') return undefined
+  const fields = calculation.fields && typeof calculation.fields === 'object'
+    ? Object.fromEntries(Object.entries(calculation.fields).filter(([, value]) => (
+      ['string', 'number', 'boolean'].includes(typeof value)
+    )))
+    : {}
+  return {
+    ruleId: String(calculation.ruleId || '').slice(0, 100),
+    ruleName: String(calculation.ruleName || '').slice(0, 100),
+    score: roundScore(Number(calculation.score) || 0),
+    summary: String(calculation.summary || '').slice(0, 1200),
+    fields,
+    warnings: Array.isArray(calculation.warnings)
+      ? calculation.warnings.map(warning => String(warning).slice(0, 200)).slice(0, 8)
+      : [],
+  }
+}
+
 const makeApplicationNo = store => {
   const year = store.settings.academicYear.match(/\d{4}/)?.[0] || new Date().getFullYear().toString()
   const sequence = store.applications.reduce((max, application) => {
@@ -331,6 +350,14 @@ const seedApplications = [
     approvedScore: 14,
     status: 'approved',
     attachments: [],
+    calculation: {
+      ruleId: 'score-work-years',
+      ruleName: '工作年限自动计分',
+      score: 14,
+      summary: '教龄 28 年 × 0.5 分/年 = 14 分',
+      fields: { yearType: 'teaching', years: 28 },
+      warnings: [],
+    },
     reviewLogs: [
       { id: 'log-app-1-submit', action: 'submitted', actorName: '张老师', comment: '提交申报材料', score: 14, createdAt: '2026-08-20T09:30:00.000Z' },
       { id: 'log-app-1-review', action: 'approved', actorName: '审核管理员', comment: '人事档案时间可核验，按 14 分认定。', score: 14, createdAt: '2026-08-21T15:10:00.000Z' },
@@ -352,6 +379,14 @@ const seedApplications = [
     approvedScore: 5,
     status: 'approved',
     attachments: [],
+    calculation: {
+      ruleId: 'score-education',
+      ruleName: '学历自动计分',
+      score: 5,
+      summary: '本科及以上，有对应教师资格证，计 5 分',
+      fields: { educationLevel: 'bachelor', hasTeacherCert: true },
+      warnings: [],
+    },
     reviewLogs: [
       { id: 'log-app-2-submit', action: 'submitted', actorName: '李老师', comment: '提交申报材料', score: 5, createdAt: '2026-08-22T11:00:00.000Z' },
       { id: 'log-app-2-review', action: 'approved', actorName: '审核管理员', comment: '学历与教师资格证一致，认定 5 分。', score: 5, createdAt: '2026-08-23T10:20:00.000Z' },
@@ -373,6 +408,14 @@ const seedApplications = [
     approvedScore: 0,
     status: 'pending',
     attachments: [],
+    calculation: {
+      ruleId: 'score-honor-comprehensive',
+      ruleName: '综合奖自动计分',
+      score: 1,
+      summary: '县级综合奖 1 次，合计 1 分',
+      fields: { recommended: true, level: 'county', count: 1 },
+      warnings: [],
+    },
     reviewLogs: [
       { id: 'log-app-3-submit', action: 'submitted', actorName: '李老师', comment: '提交申报材料', score: 1, createdAt: '2026-08-24T13:45:00.000Z' },
     ],
@@ -390,6 +433,14 @@ const seedApplications = [
     approvedScore: 0,
     status: 'pending',
     attachments: [],
+    calculation: {
+      ruleId: 'score-guidance',
+      ruleName: '指导获奖自动计分',
+      score: 0.75,
+      summary: '学科竞赛指导奖，县级一等奖，1 人共同指导，计 0.75 分',
+      fields: { schoolApproved: true, guidanceType: 'subject', level: 'county', prize: 'first', instructorCount: 1 },
+      warnings: [],
+    },
     reviewLogs: [
       { id: 'log-app-4-submit', action: 'submitted', actorName: '刘老师', comment: '提交申报材料', score: 0.75, createdAt: '2026-08-25T09:20:00.000Z' },
     ],
@@ -407,6 +458,14 @@ const seedApplications = [
     approvedScore: 0,
     status: 'rejected',
     attachments: [],
+    calculation: {
+      ruleId: 'score-paper-award',
+      ruleName: '论文获奖自动计分',
+      score: 0.5,
+      summary: '市级论文获奖一等奖，计 0.5 分',
+      fields: { recommended: true, level: 'city', prize: 'first' },
+      warnings: [],
+    },
     reviewLogs: [
       { id: 'log-app-5-submit', action: 'submitted', actorName: '王老师', comment: '提交申报材料', score: 0.5, createdAt: '2026-08-20T14:12:00.000Z' },
       { id: 'log-app-5-review', action: 'rejected', actorName: '审核管理员', comment: '暂未看到主管部门组织证明，需补充后重新提交。', score: 0, createdAt: '2026-08-21T09:35:00.000Z' },
@@ -574,6 +633,7 @@ const migrateDb = async source => {
     applicationNo: application.applicationNo || `SQ-${new Date().getFullYear()}-${String(index + 1).padStart(4, '0')}`,
     reviewLogs: Array.isArray(application.reviewLogs) ? application.reviewLogs : [],
     attachments: Array.isArray(application.attachments) ? application.attachments : [],
+    calculation: sanitizeCalculation(application.calculation),
   }))
 
   next.sessions = next.sessions.filter(session => new Date(session.expiresAt).getTime() > Date.now())
@@ -1284,6 +1344,11 @@ app.post('/api/applications', requireAuth, async (req, res) => {
     return
   }
   const requestedScore = clampScore(Number(input.requestedScore), category.maxScore)
+  const calculation = sanitizeCalculation(input.calculation)
+  if (calculation && Math.abs(calculation.score - requestedScore) > 0.01) {
+    res.status(400).json({ ok: false, message: '自动算分结果和提交分数不一致，请刷新后重新提交' })
+    return
+  }
   if (requestedScore <= 0) {
     res.status(400).json({ ok: false, message: '自评分必须大于 0' })
     return
@@ -1305,6 +1370,7 @@ app.post('/api/applications', requireAuth, async (req, res) => {
     approvedScore: 0,
     status: 'pending',
     attachments: await persistAttachments(incomingAttachments),
+    calculation,
     reviewLogs: [
       { id: uid('log'), action: 'submitted', actorName: student.name, comment: '提交申报材料', score: requestedScore, createdAt: time },
     ],

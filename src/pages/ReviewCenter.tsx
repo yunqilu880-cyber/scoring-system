@@ -259,6 +259,19 @@ function ReviewCard({
                 {category.requiredMaterials && <p className="mt-1 text-blue-700">材料要求：{category.requiredMaterials}</p>}
               </div>
             )}
+            {application.calculation && (
+              <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-xs leading-5 text-slate-600">
+                <p className="font-semibold text-emerald-800">用户自动算分：{application.calculation.score.toFixed(2)} 分</p>
+                <p className="mt-1">{application.calculation.summary}</p>
+                {application.calculation.warnings.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {application.calculation.warnings.map(warning => (
+                      <p key={warning} className="text-red-600">{warning}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-56">

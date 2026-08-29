@@ -9,6 +9,7 @@ import type {
   CurrentUser,
   MaterialAttachment,
   RankingResult,
+  ScoreCalculationSnapshot,
   StudentProfile,
   SystemSettings,
   UserRole,
@@ -30,6 +31,7 @@ interface ApplicationInput {
   title: string
   description: string
   requestedScore: number
+  calculation?: ScoreCalculationSnapshot
   attachments: MaterialAttachment[]
 }
 
