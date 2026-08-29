@@ -6,7 +6,7 @@ import type { StudentProfile } from '../types'
 import { Badge, Button, EmptyState, FilterBar, PageHeader, Panel, StatCard } from '../components/ui'
 import { downloadCsv, parseCsv } from '../utils/csv'
 
-const defaultDepartments = ['石马镇中心小学', '石马镇第二小学', '石马镇第三小学']
+const defaultDepartments = ['示例单位一', '示例单位二', '示例单位三']
 const defaultCompetitionTypes = ['中级首聘', '高级首聘', '层级内晋升']
 
 const emptyStudent: StudentProfile = {
@@ -47,9 +47,9 @@ const parseBooleanText = (value: unknown) => ['是', '有', 'true', '1', '存在
 const studentImportHeader = ['姓名', '用户编号', '所属单位', '任教学科/岗位', '竞聘类别', '限制项数', '参评限制记录']
 const studentTemplateRows = [
   studentImportHeader,
-  ['张老师', 'JS2026001', '石马镇中心小学', '语文', '中级首聘', 0, '否'],
-  ['李老师', 'JS2026002', '石马镇中心小学', '数学', '高级首聘', 0, '否'],
-  ['王老师', 'JS2026003', '石马镇第二小学', '英语', '层级内晋升', 1, '是'],
+  ['张老师', 'JS2026001', '示例单位一', '语文', '中级首聘', 0, '否'],
+  ['李老师', 'JS2026002', '示例单位一', '数学', '高级首聘', 0, '否'],
+  ['王老师', 'JS2026003', '示例单位二', '英语', '层级内晋升', 1, '是'],
 ]
 
 export default function StudentManagement() {

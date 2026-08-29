@@ -28,12 +28,12 @@ const createPreviewAttachment = (id: string, title: string, subtitle: string, ac
 }
 
 export const previewStudents: StudentProfile[] = [
-  ['stu-1', '张老师', 'JS2026001', '石马镇中心小学', '语文', '中级首聘', 0, false, 'active'],
-  ['stu-2', '李老师', 'JS2026002', '石马镇中心小学', '数学', '高级首聘', 0, false, 'active'],
-  ['stu-3', '王老师', 'JS2026003', '石马镇第二小学', '英语', '层级内晋升', 1, false, 'active'],
-  ['stu-4', '陈老师', 'JS2026004', '石马镇第三小学', '道德与法治', '中级首聘', 0, true, 'inactive'],
-  ['stu-5', '刘老师', 'JS2026005', '石马镇中心小学', '体育', '高级首聘', 0, false, 'active'],
-  ['stu-6', '赵老师', 'JS2026006', '石马镇第二小学', '科学', '层级内晋升', 0, false, 'locked'],
+  ['stu-1', '张老师', 'JS2026001', '示例单位一', '语文', '中级首聘', 0, false, 'active'],
+  ['stu-2', '李老师', 'JS2026002', '示例单位一', '数学', '高级首聘', 0, false, 'active'],
+  ['stu-3', '王老师', 'JS2026003', '示例单位二', '英语', '层级内晋升', 1, false, 'active'],
+  ['stu-4', '陈老师', 'JS2026004', '示例单位三', '道德与法治', '中级首聘', 0, true, 'inactive'],
+  ['stu-5', '刘老师', 'JS2026005', '示例单位一', '体育', '高级首聘', 0, false, 'active'],
+  ['stu-6', '赵老师', 'JS2026006', '示例单位二', '科学', '层级内晋升', 0, false, 'locked'],
 ].map(([id, name, studentId, department, major, grade, failedCourses, hasPunishment, accountStatus]) => ({
   id: String(id),
   name: String(name),
@@ -133,7 +133,7 @@ export const previewApplications: BonusApplication[] = [
     requestedScore: 14,
     approvedScore: 14,
     status: 'approved',
-    attachments: [createPreviewAttachment('att-work-years', '工作年限证明', '张老师 · 石马镇中心小学')],
+    attachments: [createPreviewAttachment('att-work-years', '工作年限证明', '张老师 · 示例单位一')],
     calculation: {
       ruleId: 'score-work-years',
       ruleName: '工作年限自动计分',
@@ -191,7 +191,7 @@ export const previewApplications: BonusApplication[] = [
     requestedScore: 1,
     approvedScore: 0,
     status: 'pending',
-    attachments: [createPreviewAttachment('att-honor', '县级优秀教师', '李老师 · 石马镇中心小学', '#0891b2')],
+    attachments: [createPreviewAttachment('att-honor', '县级优秀教师', '李老师 · 示例单位一', '#0891b2')],
     calculation: {
       ruleId: 'score-honor-comprehensive',
       ruleName: '综合奖自动计分',
